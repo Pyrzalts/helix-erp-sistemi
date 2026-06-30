@@ -17,7 +17,7 @@ SISTEM_CANLI_LINKI = "https://helix-erp-sistemi-ezpfhhar8yk7apvyh3hkdm.streamlit
 
 # --- SAYFA YAPILANDIRMASI ---
 st.set_page_config(
-    page_title="Helix ERP v3.0 (Live Sync & Saha Ops)",
+    page_title="Helix ERP v3.1 (Güvenli Saha Ops)",
     page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -230,19 +230,59 @@ for e in ekipman_listesi:
     e.setdefault("marka", "—"); e.setdefault("model", "—"); e.setdefault("seri_no", "—")
     e.setdefault("imal_yili", "—"); e.setdefault("teknik_ozellikler", "—")
     e.setdefault("fiziksel_konum", "Fabrika Sahası"); e.setdefault("durum", "Çalışıyor 🟢")
-    e.setdefault("proje_linki", "") # YENİ EKLENEN PROJE LİNKİ VARSAYILANI
+    e.setdefault("proje_linki", "")
 
 for k in pdks_kayitlari:
     k.setdefault("gecikme_dk", 0)
     k.setdefault("erken_cikis_dk", 0)
 
 # =====================================================================
-# 🚨 MOBİL QR KOD SİCİL VE BAKIM EKRANI (LİNK DİNLEYİCİ)
+# --- LOGIN (GİRİŞ EKRANI) DUVARI ---
+# =====================================================================
+if "oturum_acildi" not in st.session_state:
+    st.session_state.oturum_acildi = False
+    st.session_state.aktif_kullanici = None
+    st.session_state.aktif_rol = None
+    st.session_state.aktif_ad_soyad = None
+
+# GİRİŞ YAPILMADIYSA BU DUVARI GÖSTER (QR KOD OKUTANLAR DA BURAYA DÜŞECEK)
+if not st.session_state.oturum_acildi:
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    c_log1, c_log2, c_log3 = st.columns([1.5, 2, 1.5])
+    with c_log2:
+        st.markdown("<h2 style='text-align: center; color: #2C3E50;'>🏢 Helix ERP Giriş Paneli</h2>", unsafe_allow_html=True)
+        # Linkte makine parametresi varsa, kullanıcıya cihaz başında olduğunu hatırlat
+        if "makine" in st.query_params:
+            st.warning("⚠️ Karekod okutuldu. İşlem yapabilmek için sisteme giriş yapmalısınız.")
+            
+        with st.form("login_formu", clear_on_submit=False):
+            input_user = st.text_input("Kullanıcı Adı veya T.C. Kimlik No")
+            input_pass = st.text_input("Şifre", type="password")
+            beni_hatirla = st.checkbox("Giriş Bilgilerimi Hatırla (Oturumu Açık Tut)")
+            btn_login = st.form_submit_button("Güvenli Giriş Yap 🚀", use_container_width=True)
+            
+            if btn_login:
+                kullanici_match = next((k for k in kullanici_listesi if str(k["username"]) == input_user.strip() and str(k["sifre"]) == input_pass.strip()), None)
+                if kullanici_match:
+                    st.session_state.oturum_acildi = True
+                    st.session_state.aktif_kullanici = kullanici_match["username"]
+                    st.session_state.aktif_rol = kullanici_match["rol"]
+                    st.session_state.aktif_ad_soyad = kullanici_match["ad_soyad"]
+                    st.success(f"Hoş geldiniz, {kullanici_match['ad_soyad']}!")
+                    st.rerun()
+                else:
+                    st.error("❌ Hatalı Kullanıcı Adı veya Şifre! Lütfen bilgilerinizi kontrol edin.")
+    st.stop()
+
+# =====================================================================
+# 🚨 GÜVENLİ BÖLGE: MOBİL QR KOD SİCİL VE BAKIM EKRANI (LİNK DİNLEYİCİ)
+# SADECE OTURUM AÇANLAR BU KISMA ULAŞABİLİR!
 # =====================================================================
 qr_parametreleri = st.query_params
 if "makine" in qr_parametreleri:
     hedef_makine_kodu = qr_parametreleri["makine"]
     st.markdown("<h2 style='text-align: center; color: #2C3E50;'>📱 Saha Operasyon & CMMS Merkezi</h2>", unsafe_allow_html=True)
+    st.caption(f"👤 Aktif Kullanıcı (Dijital İmza): **{st.session_state.aktif_ad_soyad}**")
     
     makine_obj = next((e for e in ekipman_listesi if str(e["kod"]) == hedef_makine_kodu), None)
     
@@ -269,7 +309,7 @@ if "makine" in qr_parametreleri:
     
     if aktif_bakimlar:
         for b in aktif_bakimlar:
-            with st.expander(f"⚙️ {b.get('bakim_turu', '')} | Periyot: {b.get('periyot', 'Periyodik')}", expanded=True):
+            with st.expander(f"⚙️ {b.get('bakim_turu', '')} | Periyot: {b.get('periyot', 'Periyodik')} | Atanan: {b.get('sorumlu_personel', '')}", expanded=True):
                 with st.form(key=f"qr_bakim_form_{b['id']}"):
                     st.write("**📋 Yapılması Gereken Bakım Adımları (Check-List):**")
                     st.info(b.get("detaylar", "Bakım talimatı belirtilmemiş."))
@@ -289,9 +329,10 @@ if "makine" in qr_parametreleri:
                         b["olcumler"] = f"{akim}A / {gerilim}V / {sicaklik}°C"
                         b["saha_notu"] = saha_notu.strip()
                         b["kritik_uyari"] = "EVET" if kritik_sorun else "HAYIR"
+                        b["dijital_imza"] = st.session_state.aktif_ad_soyad # GÜVENLİK YAMASI: İşlemi mühürleyen kişi
                         
                         veri_kaydet(BAKIM_DOSYASI, bakim_planlari)
-                        st.success("🎉 Bakım başarıyla tamamlandı ve yönetici paneline raporlandı!")
+                        st.success(f"🎉 Bakım başarıyla tamamlandı ve '{st.session_state.aktif_ad_soyad}' dijital imzasıyla sisteme mühürlendi!")
                         st.rerun()
     else:
         st.success("✅ Bu cihaz üzerinde şu an yapılması gereken aktif bir bakım görevi bulunmuyor.")
@@ -302,45 +343,18 @@ if "makine" in qr_parametreleri:
     if gecmis_bakimlar:
         gecmis_bakimlar = sorted(gecmis_bakimlar, key=lambda x: x.get("gerceklesme_tarihi", ""), reverse=True)
         for gb in gecmis_bakimlar[:3]:
-            st.markdown(f"📅 **{gb.get('gerceklesme_tarihi', '—')}** | 👤 Sorumlu: {gb.get('sorumlu_personel', '')}")
+            # DİJİTAL İMZAYI (GERÇEK YAPAN KİŞİYİ) GÖSTER
+            st.markdown(f"📅 **{gb.get('gerceklesme_tarihi', '—')}** | 👤 Atanan: {gb.get('sorumlu_personel', '')} | ✍️ Onaylayan: **{gb.get('dijital_imza', gb.get('sorumlu_personel', ''))}**")
             st.write(f"- *Ölçüm Değerleri:* `{gb.get('olcumler', '—')}`")
             st.write(f"- *Usta Notu:* {gb.get('saha_notu', 'Not yok.')}")
             if gb.get("kritik_uyari") == "EVET": st.error("🚨 Bu bakımda kritik sorun rapor edilmiş!")
             st.markdown("---")
     else:
         st.write("Cihaza ait geçmiş dijital kayıt bulunmuyor.")
+    
+    st.info("İşlemleriniz bittiyse sol menüden sistemin geneline erişebilir veya telefon tarayıcısını kapatabilirsiniz.")
     st.stop()
 # =====================================================================
-
-# --- LOGIN (GİRİŞ EKRANI) DUVARI ---
-if "oturum_acildi" not in st.session_state:
-    st.session_state.oturum_acildi = False
-    st.session_state.aktif_kullanici = None
-    st.session_state.aktif_rol = None
-    st.session_state.aktif_ad_soyad = None
-
-if not st.session_state.oturum_acildi:
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    c_log1, c_log2, c_log3 = st.columns([1.5, 2, 1.5])
-    with c_log2:
-        st.markdown("<h2 style='text-align: center; color: #2C3E50;'>🏢 Helix ERP Giriş Paneli</h2>", unsafe_allow_html=True)
-        with st.form("login_formu", clear_on_submit=False):
-            input_user = st.text_input("Kullanıcı Adı veya T.C. Kimlik No")
-            input_pass = st.text_input("Şifre", type="password")
-            btn_login = st.form_submit_button("Güvenli Giriş Yap 🚀", use_container_width=True)
-            
-            if btn_login:
-                kullanici_match = next((k for k in kullanici_listesi if str(k["username"]) == input_user.strip() and str(k["sifre"]) == input_pass.strip()), None)
-                if kullanici_match:
-                    st.session_state.oturum_acildi = True
-                    st.session_state.aktif_kullanici = kullanici_match["username"]
-                    st.session_state.aktif_rol = kullanici_match["rol"]
-                    st.session_state.aktif_ad_soyad = kullanici_match["ad_soyad"]
-                    st.success(f"Hoş geldiniz, {kullanici_match['ad_soyad']}!")
-                    st.rerun()
-                else:
-                    st.error("❌ Hatalı Kullanıcı Adı veya Şifre! Lütfen bilgilerinizi kontrol edin.")
-    st.stop()
 
 # --- ROL BAZLI MENÜ YAPILANDIRMASI ---
 current_role = st.session_state.aktif_rol
@@ -355,7 +369,7 @@ else:
 # --- SOL MENÜ ---
 with st.sidebar:
     st.image("https://www.gstatic.com/images/branding/product/2x/avatar_anonymous_96x96dp.png", width=80)
-    st.title("Helix ERP v2.27")
+    st.title("Helix ERP v3.1")
     st.write(f"👤 {st.session_state.aktif_ad_soyad}")
     st.write(f"🔑 Yetki Grubu: `{current_role}`")
     st.write("---")
@@ -385,13 +399,6 @@ if secilen_modul == "Ana Sayfa":
     st.write(f"Mevcut İş Günü: **{datetime.now().strftime('%d %B %Y')}**")
     
     if current_role == "Yönetici":
-        # 🚨 YENİ EKLENEN KRİTİK SAHA BİLDİRİMİ
-        kritik_bakimlar = [b for b in bakim_planlari if b.get("kritik_uyari") == "EVET" and b.get("durum") == "Tamamlandı 🟢"]
-        if kritik_bakimlar:
-            st.error("🚨 **DİKKAT: Sahadaki Ustalardan Kritik Arıza/Anomali Bildirimi Yapıldı!**")
-            for kb in kritik_bakimlar:
-                st.warning(f"⚠️ **Cihaz:** {kb.get('ekipman_ad')} ({kb.get('ekipman_kod')}) | **Usta:** {kb.get('sorumlu_personel')} | **Not:** {kb.get('saha_notu')}")
-                
         col1, col2, col3, col4 = st.columns(4)
         aktif_personel = len([p for p in personel_listesi if p.get("durum") == "Aktif"])
         toplam_mesai = sum(float(k.get("fazla_mesai", 0)) for k in pdks_kayitlari)
@@ -749,8 +756,8 @@ elif secilen_modul == "Bakım Planlama 🔧" and current_role == "Yönetici":
                             }
                             veri_kaydet(EKIPMAN_DOSYASI, ekipman_listesi); st.session_state.edit_equip_target = None; st.rerun()
                         if cb_col2.form_submit_button("❌ İptal Et", use_container_width=True): st.session_state.edit_equip_target = None; st.rerun()
-            
-            # YENİ EKLENEN QR ETİKET ÜRETİM MERKEZİ (Döngü Dışı)
+
+            # --- YENİ EKLENEN QR ETİKET ÜRETİM MERKEZİ ---
             st.write("---")
             st.markdown("### 🖨️ Endüstriyel QR Kod Etiket Üretim Merkezi")
             if ekipman_listesi:
@@ -770,7 +777,7 @@ elif secilen_modul == "Bakım Planlama 🔧" and current_role == "Yönetici":
                     col_qr_v1, col_qr_v2 = st.columns([1, 3])
                     col_qr_v1.image(buf.getvalue(), caption=f"Kod: {hedef_kod}", width=180)
                     col_qr_v2.info(f"👆 **{hedef_kod}** cihazı için dinamik karekod üretilmiştir. Bu resmi sağ tıklayıp bilgisayarınıza kaydederek yazıcıdan çıktı alabilir ve sahaya yapıştırabilirsiniz.")
-        
+
         with tab_env_ekle:
             st.markdown("### 1. Ekipman Sınıfını Belirleyin")
             secilen_dinamik_kategori = st.selectbox("Ekipman Kategorisi *", EKIPMAN_KATEGORILERI, key="dinamik_kat_secim")
@@ -1063,7 +1070,6 @@ elif secilen_modul == "Giriş-Çıkış Takibi (PDKS)" and current_role == "Yön
                     if erken_cikis_hesap > 0: st.warning(f"⚠️ İHLAL LOGU: Cihaz sahibi vardiya bitiş saatinden {erken_cikis_hesap} dakika erken ayrılmıştır!")
                     st.rerun()
 
-# --- YENİ EKLENEN 30 SANİYELİK CANLI KAPSÜL MODÜLÜ ---
 elif secilen_modul == "İzin Yönetimi" and current_role == "Yönetici":
     st.title("📴 Kurumsal İzin & Talep Yönetim Modülü")
     
@@ -1199,7 +1205,6 @@ elif secilen_modul == "PDKS Geçmişim ⏱️" and current_role == "Personel":
             gosterim_listesi.append({"Tarih": k["tarih"], "Çalışılan Vardiya": k["vardiya"], "Mobil Check-In Sinyali": k["giris"], "Mobil Check-Out Sinyali": k["cikis"], "Gecikme Durumu": gecikme_str, "Erken Çıkış Durumu": erken_str, "Net Mesai Hakediş": f"🔥 {float(k['fazla_mesai']):.2f} Saat" if float(k['fazla_mesai']) > 0 else "0.00 Saat"})
         st.dataframe(pd.DataFrame(gosterim_listesi), use_container_width=True, hide_index=True)
 
-# --- YENİ EKLENEN 30 SANİYELİK CANLI KAPSÜL MODÜLÜ (PERSONEL) ---
 elif secilen_modul == "İzin İşlemlerim ✈️" and current_role == "Personel":
     st.title("✈️ İzin Talebi ve Durum Takibi")
     p_name = st.session_state.aktif_ad_soyad
