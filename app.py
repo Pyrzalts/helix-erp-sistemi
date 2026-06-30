@@ -17,7 +17,7 @@ SISTEM_CANLI_LINKI = "https://helix-erp-sistemi-ezpfhhar8yk7apvyh3hkdm.streamlit
 
 # --- SAYFA YAPILANDIRMASI ---
 st.set_page_config(
-    page_title="Helix ERP v3.2 (Hiyerarşi & Raporlama)",
+    page_title="Helix ERP v3.3 (Hiyerarşi & Rapor Merkezi)",
     page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -226,7 +226,6 @@ for p in personel_listesi:
     p.setdefault("departman", "Yönetim"); p.setdefault("birim", "Genel / Belirtilmedi"); p.setdefault("unvan", "—")
     p.setdefault("calisma_sekli", "Tam Zamanlı (Kadrolu)"); p.setdefault("saatlik_ucret", 150.0)
     p.setdefault("acil_yakini", "—"); p.setdefault("acil_telefon", "—"); p.setdefault("adres", "—"); p.setdefault("durum", "Aktif")
-    # Yeni Hiyerarşi Parametreleri (Eski veriler için varsayılanlar)
     p.setdefault("kademe", "Usta")
     p.setdefault("amir", "Yok / Bağımsız")
 
@@ -370,7 +369,7 @@ else:
 # --- SOL MENÜ ---
 with st.sidebar:
     st.image("https://www.gstatic.com/images/branding/product/2x/avatar_anonymous_96x96dp.png", width=80)
-    st.title("Helix ERP v3.2")
+    st.title("Helix ERP v3.3")
     st.write(f"👤 {st.session_state.aktif_ad_soyad}")
     st.write(f"🔑 Yetki Grubu: `{current_role}`")
     st.write("---")
@@ -883,23 +882,6 @@ elif secilen_modul == "Bakım Planlama 🔧" and current_role == "Yönetici":
             if st.button("💾 Değişiklikleri Veritabanına Kaydet", type="secondary", use_container_width=True): veri_kaydet(BAKIM_DOSYASI, edited_bakim_df.to_dict(orient="records")); st.success("Durumlar güncellendi!"); st.rerun()
             
             st.write("---")
-            with st.expander("📧 Bakım Planını E-Posta İle Gönder"):
-                with st.form("mail_form_bakim"):
-                    st.info("Not: Gmail kullanıyorsanız, Google Hesabınızdan 'Uygulama Şifresi' (App Password) oluşturmanız gerekir.")
-                    m_gonderen = st.text_input("Gönderen E-Posta (Gmail)")
-                    m_sifre = st.text_input("Uygulama Şifresi", type="password")
-                    m_alici = st.text_input("Alıcı E-Posta Adresleri (Virgülle ayırın)")
-                    if st.form_submit_button("E-Postayı Gönder 🚀", type="primary"):
-                        if m_gonderen and m_sifre and m_alici:
-                            basari, hata = mail_gonder_smtp(m_gonderen, m_sifre, m_alici, "Tesis Periyodik Bakım Planı", bakim_df)
-                            if basari:
-                                st.success("E-posta başarıyla gönderildi!")
-                            else:
-                                st.error(f"E-posta gönderilemedi: {hata}")
-                        else:
-                            st.warning("Lütfen tüm alanları doldurun.")
-                            
-            st.write("---")
             bakim_secenekleri = [f"{b['id']} - {b['ekipman_ad']} ({b['periyot']} - {b['planlanan_tarih']})" for b in bakim_planlari if b.get("durum") != "Haftalık Plana Gönderildi 📅"]
             if bakim_secenekleri:
                 c_go1, c_go2 = st.columns([3, 1]); secilen_gonderim = c_go1.selectbox("Haftalık Plana Aktarılacak Bakım Görevi", bakim_secenekleri)
@@ -1012,24 +994,6 @@ elif secilen_modul == "Vardiya Yönetimi" and current_role == "Yönetici":
                 matrix_data.append(personel_satiri)
             st.dataframe(pd.DataFrame(matrix_data), use_container_width=True, hide_index=True)
             
-            st.write("---")
-            with st.expander("📧 Vardiya Çizelgesini E-Posta İle Gönder"):
-                with st.form("mail_form_vardiya"):
-                    st.info("Not: Gmail kullanıyorsanız, Google Hesabınızdan 'Uygulama Şifresi' (App Password) oluşturmanız gerekir.")
-                    v_gonderen = st.text_input("Gönderen E-Posta (Gmail)")
-                    v_sifre = st.text_input("Uygulama Şifresi", type="password")
-                    v_alici = st.text_input("Alıcı E-Posta Adresleri (Virgülle ayırın)")
-                    if st.form_submit_button("E-Postayı Gönder 🚀", type="primary"):
-                        if v_gonderen and v_sifre and v_alici:
-                            v_df = pd.DataFrame(matrix_data)
-                            basari, hata = mail_gonder_smtp(v_gonderen, v_sifre, v_alici, f"Haftalık Vardiya Çizelgesi ({matrix_baslangic.strftime('%d.%m.%Y')})", v_df)
-                            if basari:
-                                st.success("Vardiya çizelgesi e-posta olarak gönderildi!")
-                            else:
-                                st.error(f"E-posta gönderilemedi: {hata}")
-                        else:
-                            st.warning("Lütfen tüm alanları doldurun.")
-                            
     with sekme_vardiya_yaz:
         aktif_personeller = [p["ad_soyad"] for p in personel_listesi if p["durum"] == "Aktif"]
         if aktif_personeller:
@@ -1166,7 +1130,7 @@ elif secilen_modul == "İzin Yönetimi" and current_role == "Yönetici":
 elif secilen_modul == "Raporlar & Analiz" and current_role == "Yönetici":
     st.title("📊 Gelişmiş Finansal ve Operasyonel Raporlama")
     
-    sekme_maliyet, sekme_asistan = st.tabs(["💰 Maliyet ve Mesai Analizi", "📈 Otomatik Asistan Raporları (Hiyerarşik)"])
+    sekme_maliyet, sekme_asistan, sekme_mail = st.tabs(["💰 Maliyet ve Mesai Analizi", "📈 Otomatik Asistan Raporları", "📧 Merkezi Rapor Dağıtımı"])
     
     with sekme_maliyet:
         if not pdks_kayitlari: st.info("Rapor oluşturabilmek için PDKS modülünden veri girilmelidir.")
@@ -1227,6 +1191,58 @@ elif secilen_modul == "Raporlar & Analiz" and current_role == "Yönetici":
                             st.dataframe(pd.DataFrame(ekip_pdks)[["tarih", "personel", "gecikme_dk", "fazla_mesai"]], use_container_width=True, hide_index=True)
                         else:
                             st.write("✅ Son 7 gün içinde ekipte gecikme ihlali veya fazla mesai işlemi kaydedilmemiştir.")
+
+    with sekme_mail:
+        st.markdown("### 📧 Otomatik Rapor Postalama Merkezi")
+        st.info("Bu ekrandan tesisin kilit planlarını ve raporlarını tablo olarak ilgili yöneticilere tek tıkla e-posta atabilirsiniz.")
+        
+        rapor_turu = st.selectbox("Gönderilecek Rapor Türünü Seçin", ["Haftalık İş Planı (Aktif Görevler)", "Planlı Bakım Takvimi (Bekleyen İşler)", "Haftalık Vardiya Çizelgesi"])
+        
+        with st.form("merkezi_mail_formu"):
+            m_gonderen = st.text_input("Gönderen E-Posta (Gmail)")
+            m_sifre = st.text_input("Uygulama Şifresi", type="password")
+            m_alici = st.text_input("Alıcı E-Posta Adresleri (Virgülle ayırın)")
+            
+            if st.form_submit_button("🚀 Raporu E-Posta Olarak Gönder", type="primary", use_container_width=True):
+                if m_gonderen and m_sifre and m_alici:
+                    df_gonderilecek = pd.DataFrame()
+                    konu_basligi = ""
+                    
+                    if rapor_turu == "Haftalık İş Planı (Aktif Görevler)":
+                        aktif_isler = [g for g in haftalik_plan if g.get("durum") != "Tamamlandı"]
+                        if aktif_isler:
+                            df_gonderilecek = pd.DataFrame(aktif_isler)[["id", "görev_adi", "ilgili_birim", "sorumlu", "hedef_tarih", "durum"]]
+                        konu_basligi = f"Tesis Haftalık İş Planı - {datetime.now().strftime('%d.%m.%Y')}"
+                        
+                    elif rapor_turu == "Planlı Bakım Takvimi (Bekleyen İşler)":
+                        aktif_bakimlar_mail = [b for b in bakim_planlari if "Tamamlandı" not in b.get("durum", "")]
+                        if aktif_bakimlar_mail:
+                            df_gonderilecek = pd.DataFrame(aktif_bakimlar_mail)[["ekipman_kod", "ekipman_ad", "bakim_turu", "periyot", "sorumlu_personel", "planlanan_tarih", "durum"]]
+                        konu_basligi = f"Tesis Planlı Bakım Takvimi - {datetime.now().strftime('%d.%m.%Y')}"
+                        
+                    elif rapor_turu == "Haftalık Vardiya Çizelgesi":
+                        aktif_personeller_mail = [p["ad_soyad"] for p in personel_listesi if p["durum"] == "Aktif"]
+                        m_bas = datetime.now()
+                        tarih_kolonlari_m = [(m_bas + timedelta(days=d)).strftime("%Y-%m-%d") for d in range(7)]
+                        matrix_data_m = []
+                        for p_ad_m in aktif_personeller_mail:
+                            satir = {"Personel": p_ad_m}
+                            for t_str_m in tarih_kolonlari_m:
+                                satir[t_str_m] = vardiya_programi.get(p_ad_m, {}).get(t_str_m, "—")
+                            matrix_data_m.append(satir)
+                        df_gonderilecek = pd.DataFrame(matrix_data_m)
+                        konu_basligi = f"Haftalık Vardiya Çizelgesi - {datetime.now().strftime('%d.%m.%Y')}"
+                        
+                    if df_gonderilecek.empty:
+                        st.warning("Seçilen rapor türü için gönderilecek aktif bir veri bulunamadı!")
+                    else:
+                        basari, hata = mail_gonder_smtp(m_gonderen, m_sifre, m_alici, konu_basligi, df_gonderilecek)
+                        if basari:
+                            st.success("✔️ Rapor başarıyla ilgili kişilere postalandı!")
+                        else:
+                            st.error(f"❌ Mail gönderim hatası: {hata}")
+                else:
+                    st.error("Lütfen gönderen, şifre ve alıcı bilgilerini eksiksiz doldurun.")
 
 # --- PERSONEL PORTALI MODÜLLERİ ---
 
