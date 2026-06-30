@@ -9,10 +9,15 @@ from streamlit_gsheets import GSheetsConnection
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import qrcode
+from io import BytesIO
+
+# --- SİSTEM URL AYARI (BUNU KENDİ YAYIN LİNKİNİZLE DEĞİŞTİRİN) ---
+SISTEM_CANLI_LINKI = "https://helix-erp.streamlit.app"
 
 # --- SAYFA YAPILANDIRMASI ---
 st.set_page_config(
-    page_title="Helix ERP v2.26 (Leave Request & Approval Edition)",
+    page_title="Helix ERP v3.0 (Live Sync & Saha Ops)",
     page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -225,10 +230,87 @@ for e in ekipman_listesi:
     e.setdefault("marka", "—"); e.setdefault("model", "—"); e.setdefault("seri_no", "—")
     e.setdefault("imal_yili", "—"); e.setdefault("teknik_ozellikler", "—")
     e.setdefault("fiziksel_konum", "Fabrika Sahası"); e.setdefault("durum", "Çalışıyor 🟢")
+    e.setdefault("proje_linki", "") # YENİ EKLENEN PROJE LİNKİ VARSAYILANI
 
 for k in pdks_kayitlari:
     k.setdefault("gecikme_dk", 0)
     k.setdefault("erken_cikis_dk", 0)
+
+# =====================================================================
+# 🚨 MOBİL QR KOD SİCİL VE BAKIM EKRANI (LİNK DİNLEYİCİ)
+# =====================================================================
+qr_parametreleri = st.query_params
+if "makine" in qr_parametreleri:
+    hedef_makine_kodu = qr_parametreleri["makine"]
+    st.markdown("<h2 style='text-align: center; color: #2C3E50;'>📱 Saha Operasyon & CMMS Merkezi</h2>", unsafe_allow_html=True)
+    
+    makine_obj = next((e for e in ekipman_listesi if str(e["kod"]) == hedef_makine_kodu), None)
+    
+    if not makine_obj:
+        st.error(f"❌ HATA: Sistemde '{hedef_makine_kodu}' kodlu bir cihaz bulunamadı.")
+        st.stop()
+        
+    st.markdown(f"### 🏭 {makine_obj['kod']} - {makine_obj.get('ad', '')}")
+    st.info(f"**Kategori:** {makine_obj.get('kategori', '')} | **📍 Konum:** {makine_obj.get('fiziksel_konum', '')} | **🚥 Durum:** {makine_obj.get('durum', '')}")
+    
+    if makine_obj.get("proje_linki"):
+        st.markdown(f"""
+        <a href="{makine_obj['proje_linki']}" target="_blank">
+            <button style="width:100%; padding:12px; background-color:#2980b9; color:white; border:none; border-radius:6px; font-weight:bold; font-size:16px; margin-bottom:15px; cursor:pointer;">
+                📐 Elektrik Şeması / Projesini Görüntüle
+            </button>
+        </a>
+        """, unsafe_allow_html=True)
+        
+    st.markdown("---")
+    st.markdown("### 📋 Aktif Bakım Formu ve Kontrol Listesi")
+    
+    aktif_bakimlar = [b for b in bakim_planlari if str(b.get("ekipman_kod")) == hedef_makine_kodu and b.get("durum") in ["Bekliyor 🟡", "Haftalık Plana Gönderildi 📅", "Devam Ediyor 🔵"]]
+    
+    if aktif_bakimlar:
+        for b in aktif_bakimlar:
+            with st.expander(f"⚙️ {b.get('bakim_turu', '')} | Periyot: {b.get('periyot', 'Periyodik')}", expanded=True):
+                with st.form(key=f"qr_bakim_form_{b['id']}"):
+                    st.write("**📋 Yapılması Gereken Bakım Adımları (Check-List):**")
+                    st.info(b.get("detaylar", "Bakım talimatı belirtilmemiş."))
+                    
+                    st.markdown("**⚡ Canlı Saha Ölçüm Girişleri**")
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    akim = col_m1.number_input("Çekilen Akım (Amper)", min_value=0.0, key=f"akim_{b['id']}")
+                    gerilim = col_m2.number_input("Çalışma Gerilimi (Volt)", min_value=0.0, key=f"gerilim_{b['id']}")
+                    sicaklik = col_m3.number_input("Pano/Motor Sıcaklığı (°C)", min_value=0.0, key=f"sicaklik_{b['id']}")
+                    
+                    saha_notu = st.text_area("Usta Saha Notları (Değişen parça, tespitler vb.)", key=f"not_{b['id']}")
+                    kritik_sorun = st.checkbox("🚨 Tesis için tehlike arz eden KRİTİK BİR SORUN var!", key=f"kritik_{b['id']}")
+                    
+                    if st.form_submit_button("🔒 Bakımı Tamamla ve Verileri Kilitle", type="primary", use_container_width=True):
+                        b["durum"] = "Tamamlandı 🟢"
+                        b["gerceklesme_tarihi"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        b["olcumler"] = f"{akim}A / {gerilim}V / {sicaklik}°C"
+                        b["saha_notu"] = saha_notu.strip()
+                        b["kritik_uyari"] = "EVET" if kritik_sorun else "HAYIR"
+                        
+                        veri_kaydet(BAKIM_DOSYASI, bakim_planlari)
+                        st.success("🎉 Bakım başarıyla tamamlandı ve yönetici paneline raporlandı!")
+                        st.rerun()
+    else:
+        st.success("✅ Bu cihaz üzerinde şu an yapılması gereken aktif bir bakım görevi bulunmuyor.")
+        
+    st.markdown("---")
+    st.markdown("#### 🕰️ Cihazın Geçmiş Bakım Sicili (Son 3 İşlem)")
+    gecmis_bakimlar = [b for b in bakim_planlari if str(b.get("ekipman_kod")) == hedef_makine_kodu and b.get("durum") == "Tamamlandı 🟢"]
+    if gecmis_bakimlar:
+        gecmis_bakimlar = sorted(gecmis_bakimlar, key=lambda x: x.get("gerceklesme_tarihi", ""), reverse=True)
+        for gb in gecmis_bakimlar[:3]:
+            st.markdown(f"📅 **{gb.get('gerceklesme_tarihi', '—')}** | 👤 Sorumlu: {gb.get('sorumlu_personel', '')}")
+            st.write(f"- *Ölçüm Değerleri:* `{gb.get('olcumler', '—')}`")
+            st.write(f"- *Usta Notu:* {gb.get('saha_notu', 'Not yok.')}")
+            if gb.get("kritik_uyari") == "EVET": st.error("🚨 Bu bakımda kritik sorun rapor edilmiş!")
+            st.markdown("---")
+    else:
+        st.write("Cihaza ait geçmiş dijital kayıt bulunmuyor.")
+    st.stop()
+# =====================================================================
 
 # --- LOGIN (GİRİŞ EKRANI) DUVARI ---
 if "oturum_acildi" not in st.session_state:
@@ -267,14 +349,13 @@ if current_role == "Yönetici":
     menu_options = ["Ana Sayfa", "Personel Özlük", "Bakım Planlama 🔧", "Haftalık İş Planı 📅", "Vardiya Yönetimi", "Giriş-Çıkış Takibi (PDKS)", "İzin Yönetimi", "Raporlar & Analiz"]
     menu_icons = ["house", "people", "wrench", "calendar-week", "clock-history", "box-arrow-in-right", "calendar-x", "graph-up-arrow"]
 else:
-    # PERSONEL MENÜSÜNE YENİ "İZİN İŞLEMLERİM" EKLENDİ
     menu_options = ["Ana Sayfa", "Vardiya Dünyam 📋", "Tesis Bakım Planı 🔧", "PDKS Geçmişim ⏱️", "İzin İşlemlerim ✈️"]
     menu_icons = ["house", "calendar-date", "wrench", "alarm", "airplane"]
 
 # --- SOL MENÜ ---
 with st.sidebar:
     st.image("https://www.gstatic.com/images/branding/product/2x/avatar_anonymous_96x96dp.png", width=80)
-    st.title("Helix ERP v2.26")
+    st.title("Helix ERP v2.27")
     st.write(f"👤 {st.session_state.aktif_ad_soyad}")
     st.write(f"🔑 Yetki Grubu: `{current_role}`")
     st.write("---")
@@ -304,6 +385,13 @@ if secilen_modul == "Ana Sayfa":
     st.write(f"Mevcut İş Günü: **{datetime.now().strftime('%d %B %Y')}**")
     
     if current_role == "Yönetici":
+        # 🚨 YENİ EKLENEN KRİTİK SAHA BİLDİRİMİ
+        kritik_bakimlar = [b for b in bakim_planlari if b.get("kritik_uyari") == "EVET" and b.get("durum") == "Tamamlandı 🟢"]
+        if kritik_bakimlar:
+            st.error("🚨 **DİKKAT: Sahadaki Ustalardan Kritik Arıza/Anomali Bildirimi Yapıldı!**")
+            for kb in kritik_bakimlar:
+                st.warning(f"⚠️ **Cihaz:** {kb.get('ekipman_ad')} ({kb.get('ekipman_kod')}) | **Usta:** {kb.get('sorumlu_personel')} | **Not:** {kb.get('saha_notu')}")
+                
         col1, col2, col3, col4 = st.columns(4)
         aktif_personel = len([p for p in personel_listesi if p.get("durum") == "Aktif"])
         toplam_mesai = sum(float(k.get("fazla_mesai", 0)) for k in pdks_kayitlari)
@@ -646,6 +734,7 @@ elif secilen_modul == "Bakım Planlama 🔧" and current_role == "Yönetici":
                         yeni_kritiklik = c_en2.select_slider("Kritiklik Derecesi", options=["Düşük", "Orta", "Yüksek", "KRİTİK 🚨"], value=e_edit.get("kritiklik", "Orta"))
                         st.markdown("---")
                         yeni_konum = st.text_input("📍 Sahadaki Tam Konumu / Bölgesi *", value=e_edit.get("fiziksel_konum",""))
+                        yeni_proje_linki = st.text_input("🔗 Varsa Elektrik Projesi / Şema Linki", value=e_edit.get("proje_linki", ""))
                         yeni_teknik = st.text_area("Ekstra Teknik Özellikler ve Notlar", value=e_edit.get("teknik_ozellikler",""))
                         cb_col1, cb_col2 = st.columns(2)
                         if cb_col1.form_submit_button("🔄 Ekipmanı Güncelle", type="primary", use_container_width=True):
@@ -655,10 +744,32 @@ elif secilen_modul == "Bakım Planlama 🔧" and current_role == "Yönetici":
                                 "marka": yeni_marka.strip(), "model": yeni_model.strip(), 
                                 "seri_no": yeni_seri.strip(), "imal_yili": yeni_imal.strip(), 
                                 "fiziksel_konum": yeni_konum.strip(), "durum": yeni_durum, 
-                                "kritiklik": yeni_kritiklik, "teknik_ozellikler": yeni_teknik.strip()
+                                "kritiklik": yeni_kritiklik, "teknik_ozellikler": yeni_teknik.strip(),
+                                "proje_linki": yeni_proje_linki.strip()
                             }
                             veri_kaydet(EKIPMAN_DOSYASI, ekipman_listesi); st.session_state.edit_equip_target = None; st.rerun()
                         if cb_col2.form_submit_button("❌ İptal Et", use_container_width=True): st.session_state.edit_equip_target = None; st.rerun()
+            
+            # YENİ EKLENEN QR ETİKET ÜRETİM MERKEZİ (Döngü Dışı)
+            st.write("---")
+            st.markdown("### 🖨️ Endüstriyel QR Kod Etiket Üretim Merkezi")
+            if ekipman_listesi:
+                qr_secilen = st.selectbox("Saha Etiketi Basılacak Ekipman veya Panoyu Seçin", [f"{e['kod']} - {e['ad']}" for e in ekipman_listesi], key="saha_qr_secim_kutusu")
+                if qr_secilen:
+                    hedef_kod = qr_secilen.split(" - ")[0].strip()
+                    qr_url = f"{SISTEM_CANLI_LINKI}/?makine={hedef_kod}"
+                    
+                    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+                    qr.add_data(qr_url)
+                    qr.make(fit=True)
+                    img = qr.make_image(fill_color="black", back_color="white")
+                    
+                    buf = BytesIO()
+                    img.save(buf, format="PNG")
+                    
+                    col_qr_v1, col_qr_v2 = st.columns([1, 3])
+                    col_qr_v1.image(buf.getvalue(), caption=f"Kod: {hedef_kod}", width=180)
+                    col_qr_v2.info(f"👆 **{hedef_kod}** cihazı için dinamik karekod üretilmiştir. Bu resmi sağ tıklayıp bilgisayarınıza kaydederek yazıcıdan çıktı alabilir ve sahaya yapıştırabilirsiniz.")
         
         with tab_env_ekle:
             st.markdown("### 1. Ekipman Sınıfını Belirleyin")
@@ -705,6 +816,7 @@ elif secilen_modul == "Bakım Planlama 🔧" and current_role == "Yönetici":
                     d_os = st.text_input("İşletim Sistemi / Firmware Sürümü")
                 
                 genel_notlar = st.text_area("Genel Notlar ve Açıklamalar")
+                proje_linki_input = st.text_input("🔗 Varsa Elektrik Projesi / Şema PDF Linki (Google Drive vb.)", placeholder="https://drive.google.com/...")
                 
                 if st.form_submit_button("💾 Dinamik Ekipmanı Envantere Kaydet", use_container_width=True, type="primary"):
                     if ekipman_kodu.strip() and ekipman_adi.strip() and fiziksel_konum.strip():
@@ -725,7 +837,8 @@ elif secilen_modul == "Bakım Planlama 🔧" and current_role == "Yönetici":
                             "marka": marka.strip(), "model": model.strip(), 
                             "seri_no": seri_no.strip(), "imal_yili": imal_yili.strip(), 
                             "fiziksel_konum": fiziksel_konum.strip(), "durum": ekipman_durum, 
-                            "kritiklik": kritiklik, "teknik_ozellikler": nihai_teknik_ozellikler.strip()
+                            "kritiklik": kritiklik, "teknik_ozellikler": nihai_teknik_ozellikler.strip(),
+                            "proje_linki": proje_linki_input.strip()
                         })
                         veri_kaydet(EKIPMAN_DOSYASI, ekipman_listesi)
                         st.success("🎉 Cihaza özel parametrelerle kaydedildi.")
@@ -950,64 +1063,77 @@ elif secilen_modul == "Giriş-Çıkış Takibi (PDKS)" and current_role == "Yön
                     if erken_cikis_hesap > 0: st.warning(f"⚠️ İHLAL LOGU: Cihaz sahibi vardiya bitiş saatinden {erken_cikis_hesap} dakika erken ayrılmıştır!")
                     st.rerun()
 
-# --- YÖNETİCİ İÇİN YENİLENMİŞ İZİN VE TALEP YÖNETİMİ ---
+# --- YENİ EKLENEN 30 SANİYELİK CANLI KAPSÜL MODÜLÜ ---
 elif secilen_modul == "İzin Yönetimi" and current_role == "Yönetici":
     st.title("📴 Kurumsal İzin & Talep Yönetim Modülü")
-    sekme_iz_liste, sekme_iz_talep, sekme_iz_yaz = st.tabs(["📋 Aktif İzin Takvimi", "🔔 Personel Talepleri", "➕ Manuel İzin / Rapor Gir"])
     
-    with sekme_iz_liste:
-        if not izin_kayitlari: st.info("Kayıtlı izin yok.")
-        else: st.dataframe(pd.DataFrame(izin_kayitlari), use_container_width=True, hide_index=True)
+    @st.fragment(run_every="30s")
+    def izin_yonetimi_canli_paneli():
+        st.cache_data.clear()
+        if "db_Izin_Talepleri" in st.session_state: del st.session_state["db_Izin_Talepleri"]
+        if "db_Izin" in st.session_state: del st.session_state["db_Izin"]
+        if "db_Vardiya" in st.session_state: del st.session_state["db_Vardiya"]
         
-    with sekme_iz_talep:
-        bekleyenler = [t for t in izin_talepleri if t.get("durum") == "Bekliyor 🟡"]
-        if not bekleyenler:
-            st.info("Şu an onay bekleyen yeni bir izin talebi bulunmuyor.")
-        else:
-            for idx, t in enumerate(izin_talepleri):
-                if t.get("durum") == "Bekliyor 🟡":
-                    with st.container():
-                        st.markdown(f"**👤 {t['personel']}** | 📝 **Tür:** {t['tur']} | 📅 **Tarih:** {t['baslangic']} ile {t['bitis']} arası ({t['toplam_gun']} Gün)")
-                        col_t1, col_t2 = st.columns([1, 1])
-                        if col_t1.button("✅ Onayla ve Takvime İşle", key=f"onay_{idx}", type="primary", use_container_width=True):
-                            t["durum"] = "Onaylandı 🟢"
-                            izin_kayitlari.append({"personel": t["personel"], "tur": t["tur"], "baslangic": t["baslangic"], "bitis": t["bitis"], "toplam_gun": t["toplam_gun"]})
-                            if t["personel"] not in vardiya_programi: vardiya_programi[t["personel"]] = {}
-                            v_etiket = "Yıllık İzin ✈️" if "Yıllık" in t["tur"] else "Sağlık Raporu 🏥" if "Sağlık" in t["tur"] else "Ücretsiz İzin 🛑" if "Ücretsiz" in t["tur"] else "Mazeret İzni 📝"
-                            
-                            bas_dt = datetime.strptime(t["baslangic"], "%Y-%m-%d")
-                            for d in range(t["toplam_gun"]): 
-                                vardiya_programi[t["personel"]][(bas_dt + timedelta(days=d)).strftime("%Y-%m-%d")] = v_etiket
-                                
-                            veri_kaydet(IZIN_DOSYASI, izin_kayitlari)
-                            veri_kaydet(VARDIYA_DOSYASI, vardiya_programi)
-                            veri_kaydet(IZIN_TALEP_DOSYASI, izin_talepleri)
-                            st.success(f"✔️ {t['personel']} izni onaylandı ve vardiya takvimine otomatik işlendi!")
-                            st.rerun()
+        canli_talepler = veri_yukle(IZIN_TALEP_DOSYASI, [])
+        canli_izinler = veri_yukle(IZIN_DOSYASI, [])
+        canli_vardiya = veri_yukle(VARDIYA_DOSYASI, {})
+        
+        sekme_iz_liste, sekme_iz_talep, sekme_iz_yaz = st.tabs(["📋 Aktif İzin Takvimi", "🔔 Personel Talepleri", "➕ Manuel İzin / Rapor Gir"])
+        
+        with sekme_iz_liste:
+            if not canli_izinler: st.info("Kayıtlı izin yok.")
+            else: st.dataframe(pd.DataFrame(canli_izinler), use_container_width=True, hide_index=True)
+            
+        with sekme_iz_talep:
+            bekleyenler = [t for t in canli_talepler if t.get("durum") == "Bekliyor 🟡"]
+            if not bekleyenler:
+                st.info("Şu an onay bekleyen yeni bir izin talebi bulunmuyor. (Ekran 30 saniyede bir canlı güncellenir)")
+            else:
+                for idx, t in enumerate(canli_talepler):
+                    if t.get("durum") == "Bekliyor 🟡":
+                        with st.container():
+                            st.markdown(f"**👤 {t['personel']}** | 📝 **Tür:** {t['tur']} | 📅 **Tarih:** {t['baslangic']} ile {t['bitis']} arası ({t['toplam_gun']} Gün)")
+                            col_t1, col_t2 = st.columns([1, 1])
+                            if col_t1.button("✅ Onayla ve Takvime İşle", key=f"onay_{idx}", type="primary", use_container_width=True):
+                                t["durum"] = "Onaylandı 🟢"
+                                canli_izinler.append({"personel": t["personel"], "tur": t["tur"], "baslangic": t["baslangic"], "bitis": t["bitis"], "toplam_gun": t["toplam_gun"]})
+                                if t["personel"] not in canli_vardiya: canli_vardiya[t["personel"]] = {}
+                                v_etiket = "Yıllık İzin ✈️" if "Yıllık" in t["tur"] else "Sağlık Raporu 🏥" if "Sağlık" in t["tur"] else "Ücretsiz İzin 🛑" if "Ücretsiz" in t["tur"] else "Mazeret İzni 📝"
+                                bas_dt = datetime.strptime(t["baslangic"], "%Y-%m-%d")
+                                for d in range(int(t["toplam_gun"])): 
+                                    canli_vardiya[t["personel"]][(bas_dt + timedelta(days=d)).strftime("%Y-%m-%d")] = v_etiket
+                                    
+                                veri_kaydet(IZIN_DOSYASI, canli_izinler)
+                                veri_kaydet(VARDIYA_DOSYASI, canli_vardiya)
+                                veri_kaydet(IZIN_TALEP_DOSYASI, canli_talepler)
+                                st.success(f"✔️ {t['personel']} izni onaylandı ve vardiya takvimine otomatik işlendi!")
+                                st.rerun()
 
-                        if col_t2.button("❌ Reddet", key=f"red_{idx}", use_container_width=True):
-                            t["durum"] = "Reddedildi 🔴"
-                            veri_kaydet(IZIN_TALEP_DOSYASI, izin_talepleri)
-                            st.error("Talep reddedildi.")
-                            st.rerun()
-                        st.write("---")
+                            if col_t2.button("❌ Reddet", key=f"red_{idx}", use_container_width=True):
+                                t["durum"] = "Reddedildi 🔴"
+                                veri_kaydet(IZIN_TALEP_DOSYASI, canli_talepler)
+                                st.error("Talep reddedildi.")
+                                st.rerun()
+                            st.write("---")
 
-        st.markdown("#### 📜 Geçmiş Talepler")
-        gecmis = [t for t in izin_talepleri if t.get("durum") != "Bekliyor 🟡"]
-        if gecmis:
-            st.dataframe(pd.DataFrame(gecmis)[["personel", "tur", "baslangic", "bitis", "durum"]], use_container_width=True, hide_index=True)
+            st.markdown("#### 📜 Geçmiş Talepler")
+            gecmis = [t for t in canli_talepler if t.get("durum") != "Bekliyor 🟡"]
+            if gecmis:
+                st.dataframe(pd.DataFrame(gecmis)[["personel", "tur", "baslangic", "bitis", "durum"]], use_container_width=True, hide_index=True)
 
-    with sekme_iz_yaz:
-        aktif_personeller = [p["ad_soyad"] for p in personel_listesi if p["durum"] == "Aktif"]
-        with st.form("izin_giris_formu", clear_on_submit=True):
-            iz_p = st.selectbox("İzin Kullanan Personel", aktif_personeller); iz_tur = st.selectbox("İzin Türü", ["Yıllık Ücretli İzin ✈️", "Sağlık Raporu 🏥", "Mazeret İzni 📝", "Ücretsiz İzin 🛑"]); iz_bas = st.date_input("İzin Başlangıç Tarihi", datetime.now()); iz_bit = st.date_input("İzin Bitiş Tarihi (Dahil)", datetime.now())
-            if st.form_submit_button("🔒 İzni Onayla ve Rezerve Et"):
-                if iz_bit >= iz_bas:
-                    gün_s = (iz_bit - iz_bas).days + 1; izin_kayitlari.append({"personel": iz_p, "tur": iz_tur, "baslangic": iz_bas.strftime("%Y-%m-%d"), "bitis": iz_bit.strftime("%Y-%m-%d"), "toplam_gun": gün_s})
-                    if iz_p not in vardiya_programi: vardiya_programi[iz_p] = {}
-                    v_etiket = "Yıllık İzin ✈️" if "Yıllık" in iz_tur else "Sağlık Raporu 🏥" if "Sağlık" in iz_tur else "Ücretsiz İzin 🛑"
-                    for d in range(gün_s): vardiya_programi[iz_p][(iz_bas + timedelta(days=d)).strftime("%Y-%m-%d")] = v_etiket
-                    veri_kaydet(IZIN_DOSYASI, izin_kayitlari); veri_kaydet(VARDIYA_DOSYASI, vardiya_programi); st.success("🎉 İzin kaydedildi!"); st.rerun()
+        with sekme_iz_yaz:
+            aktif_personeller = [p["ad_soyad"] for p in personel_listesi if p["durum"] == "Aktif"]
+            with st.form("izin_giris_formu", clear_on_submit=True):
+                iz_p = st.selectbox("İzin Kullanan Personel", aktif_personeller); iz_tur = st.selectbox("İzin Türü", ["Yıllık Ücretli İzin ✈️", "Sağlık Raporu 🏥", "Mazeret İzni 📝", "Ücretsiz İzin 🛑"]); iz_bas = st.date_input("İzin Başlangıç Tarihi", datetime.now()); iz_bit = st.date_input("İzin Bitiş Tarihi (Dahil)", datetime.now())
+                if st.form_submit_button("🔒 İzni Onayla ve Rezerve Et"):
+                    if iz_bit >= iz_bas:
+                        gün_s = (iz_bit - iz_bas).days + 1; canli_izinler.append({"personel": iz_p, "tur": iz_tur, "baslangic": iz_bas.strftime("%Y-%m-%d"), "bitis": iz_bit.strftime("%Y-%m-%d"), "toplam_gun": gün_s})
+                        if iz_p not in canli_vardiya: canli_vardiya[iz_p] = {}
+                        v_etiket = "Yıllık İzin ✈️" if "Yıllık" in iz_tur else "Sağlık Raporu 🏥" if "Sağlık" in iz_tur else "Ücretsiz İzin 🛑"
+                        for d in range(gün_s): canli_vardiya[iz_p][(iz_bas + timedelta(days=d)).strftime("%Y-%m-%d")] = v_etiket
+                        veri_kaydet(IZIN_DOSYASI, canli_izinler); veri_kaydet(VARDIYA_DOSYASI, canli_vardiya); st.success("🎉 İzin kaydedildi!"); st.rerun()
+                        
+    izin_yonetimi_canli_paneli()
 
 elif secilen_modul == "Raporlar & Analiz" and current_role == "Yönetici":
     st.title("📊 Gelişmiş Finansal ve Operasyonel Raporlama")
@@ -1073,42 +1199,51 @@ elif secilen_modul == "PDKS Geçmişim ⏱️" and current_role == "Personel":
             gosterim_listesi.append({"Tarih": k["tarih"], "Çalışılan Vardiya": k["vardiya"], "Mobil Check-In Sinyali": k["giris"], "Mobil Check-Out Sinyali": k["cikis"], "Gecikme Durumu": gecikme_str, "Erken Çıkış Durumu": erken_str, "Net Mesai Hakediş": f"🔥 {float(k['fazla_mesai']):.2f} Saat" if float(k['fazla_mesai']) > 0 else "0.00 Saat"})
         st.dataframe(pd.DataFrame(gosterim_listesi), use_container_width=True, hide_index=True)
 
-# YENİ EKLENEN SEKME: PERSONEL İÇİN İZİN TALEP EKRANI
+# --- YENİ EKLENEN 30 SANİYELİK CANLI KAPSÜL MODÜLÜ (PERSONEL) ---
 elif secilen_modul == "İzin İşlemlerim ✈️" and current_role == "Personel":
     st.title("✈️ İzin Talebi ve Durum Takibi")
     p_name = st.session_state.aktif_ad_soyad
     
-    sekme_p_talep, sekme_p_gecmis = st.tabs(["➕ Yeni Talep Oluştur", "📜 Talep Geçmişim"])
-    
-    with sekme_p_talep:
-        with st.form("personel_talep_formu", clear_on_submit=True):
-            st.write("Yöneticinize iletilmek üzere yeni bir izin veya rapor talebi oluşturun:")
-            t_iz_tur = st.selectbox("İzin / Rapor Türü", ["Yıllık Ücretli İzin ✈️", "Sağlık Raporu 🏥", "Mazeret İzni 📝", "Ücretsiz İzin 🛑"])
-            t_iz_bas = st.date_input("Başlangıç Tarihi", datetime.now())
-            t_iz_bit = st.date_input("Bitiş Tarihi (Dahil)", datetime.now())
-            
-            if st.form_submit_button("📤 Talebi Yöneticime Gönder", type="primary", use_container_width=True):
-                if t_iz_bit >= t_iz_bas:
-                    gün_s = (t_iz_bit - t_iz_bas).days + 1
-                    izin_talepleri.append({
-                        "id": len(izin_talepleri) + 1,
-                        "personel": p_name,
-                        "tur": t_iz_tur,
-                        "baslangic": t_iz_bas.strftime("%Y-%m-%d"),
-                        "bitis": t_iz_bit.strftime("%Y-%m-%d"),
-                        "toplam_gun": gün_s,
-                        "durum": "Bekliyor 🟡",
-                        "talep_tarihi": datetime.now().strftime("%Y-%m-%d %H:%M")
-                    })
-                    veri_kaydet(IZIN_TALEP_DOSYASI, izin_talepleri)
-                    st.success("Talebiniz başarıyla yöneticinize iletildi. Onaylandığında vardiya takviminize otomatik yansıyacaktır.")
-                    st.rerun()
-                else:
-                    st.error("Bitiş tarihi başlangıç tarihinden önce olamaz!")
-                    
-    with sekme_p_gecmis:
-        p_talepler = [t for t in izin_talepleri if t["personel"] == p_name]
-        if not p_talepler:
-            st.info("Henüz oluşturduğunuz bir talep bulunmuyor.")
-        else:
-            st.dataframe(pd.DataFrame(p_talepler)[["talep_tarihi", "tur", "baslangic", "bitis", "toplam_gun", "durum"]], use_container_width=True, hide_index=True)
+    @st.fragment(run_every="30s")
+    def personel_izin_canli_paneli():
+        st.cache_data.clear()
+        if "db_Izin_Talepleri" in st.session_state: del st.session_state["db_Izin_Talepleri"]
+        
+        canli_talepler = veri_yukle(IZIN_TALEP_DOSYASI, [])
+        
+        sekme_p_talep, sekme_p_gecmis = st.tabs(["➕ Yeni Talep Oluştur", "📜 Talep Geçmişim"])
+        
+        with sekme_p_talep:
+            with st.form("personel_talep_formu", clear_on_submit=True):
+                st.write("Yöneticinize iletilmek üzere yeni bir izin veya rapor talebi oluşturun:")
+                t_iz_tur = st.selectbox("İzin / Rapor Türü", ["Yıllık Ücretli İzin ✈️", "Sağlık Raporu 🏥", "Mazeret İzni 📝", "Ücretsiz İzin 🛑"])
+                t_iz_bas = st.date_input("Başlangıç Tarihi", datetime.now())
+                t_iz_bit = st.date_input("Bitiş Tarihi (Dahil)", datetime.now())
+                
+                if st.form_submit_button("📤 Talebi Yöneticime Gönder", type="primary", use_container_width=True):
+                    if t_iz_bit >= t_iz_bas:
+                        gün_s = (t_iz_bit - t_iz_bas).days + 1
+                        canli_talepler.append({
+                            "id": len(canli_talepler) + 1,
+                            "personel": p_name,
+                            "tur": t_iz_tur,
+                            "baslangic": t_iz_bas.strftime("%Y-%m-%d"),
+                            "bitis": t_iz_bit.strftime("%Y-%m-%d"),
+                            "toplam_gun": gün_s,
+                            "durum": "Bekliyor 🟡",
+                            "talep_tarihi": datetime.now().strftime("%Y-%m-%d %H:%M")
+                        })
+                        veri_kaydet(IZIN_TALEP_DOSYASI, canli_talepler)
+                        st.success("Talebiniz başarıyla yöneticinize iletildi. Onaylandığında vardiya takviminize otomatik yansıyacaktır.")
+                        st.rerun()
+                    else:
+                        st.error("Bitiş tarihi başlangıç tarihinden önce olamaz!")
+                        
+        with sekme_p_gecmis:
+            p_talepler = [t for t in canli_talepler if t["personel"] == p_name]
+            if not p_talepler:
+                st.info("Henüz oluşturduğunuz bir talep bulunmuyor. (Ekran 30 saniyede bir güncellenir)")
+            else:
+                st.dataframe(pd.DataFrame(p_talepler)[["talep_tarihi", "tur", "baslangic", "bitis", "toplam_gun", "durum"]], use_container_width=True, hide_index=True)
+                
+    personel_izin_canli_paneli()
