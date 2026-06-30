@@ -17,7 +17,7 @@ SISTEM_CANLI_LINKI = "https://helix-erp-sistemi-ezpfhhar8yk7apvyh3hkdm.streamlit
 
 # --- SAYFA YAPILANDIRMASI ---
 st.set_page_config(
-    page_title="Helix ERP v3.1 (Güvenli Saha Ops)",
+    page_title="Helix ERP v3.2 (Hiyerarşi & Raporlama)",
     page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -153,7 +153,9 @@ def mail_gonder_smtp(gonderen, sifre, alici_listesi, konu, df):
     except Exception as e:
         return False, str(e)
 
-# --- SİSTEM SABİTLERİ ---
+# --- SİSTEM SABİTLERİ VE HİYERARŞİ ---
+KADEMELER = ["Birim Şefi", "Şef Yardımcısı", "Formen", "Usta", "Usta Yardımcısı"]
+
 DEPARTMAN_BIRIMLERI = {
     "Yönetim": ["İnsan Kaynakları (İK)", "Muhasebe & Finans", "Bilgi İşlem (IT)", "İdari İşler & Resepsiyon", "Üst Yönetim / Genel Müdürlük"],
     "Üretim / Saha": ["Hat-1 Montaj", "Hat-2 Paketleme", "Kalıphane & Talaşlı İmalat", "Kalite Kontrol", "İş Sağlığı ve Güvenliği (İSG)"],
@@ -224,6 +226,9 @@ for p in personel_listesi:
     p.setdefault("departman", "Yönetim"); p.setdefault("birim", "Genel / Belirtilmedi"); p.setdefault("unvan", "—")
     p.setdefault("calisma_sekli", "Tam Zamanlı (Kadrolu)"); p.setdefault("saatlik_ucret", 150.0)
     p.setdefault("acil_yakini", "—"); p.setdefault("acil_telefon", "—"); p.setdefault("adres", "—"); p.setdefault("durum", "Aktif")
+    # Yeni Hiyerarşi Parametreleri (Eski veriler için varsayılanlar)
+    p.setdefault("kademe", "Usta")
+    p.setdefault("amir", "Yok / Bağımsız")
 
 for e in ekipman_listesi:
     e.setdefault("kategori", "⚙️ Üretim / Saha Makineleri (Motor, Redüktör, Bant)")
@@ -245,13 +250,11 @@ if "oturum_acildi" not in st.session_state:
     st.session_state.aktif_rol = None
     st.session_state.aktif_ad_soyad = None
 
-# GİRİŞ YAPILMADIYSA BU DUVARI GÖSTER (QR KOD OKUTANLAR DA BURAYA DÜŞECEK)
 if not st.session_state.oturum_acildi:
     st.markdown("<br><br>", unsafe_allow_html=True)
     c_log1, c_log2, c_log3 = st.columns([1.5, 2, 1.5])
     with c_log2:
         st.markdown("<h2 style='text-align: center; color: #2C3E50;'>🏢 Helix ERP Giriş Paneli</h2>", unsafe_allow_html=True)
-        # Linkte makine parametresi varsa, kullanıcıya cihaz başında olduğunu hatırlat
         if "makine" in st.query_params:
             st.warning("⚠️ Karekod okutuldu. İşlem yapabilmek için sisteme giriş yapmalısınız.")
             
@@ -276,7 +279,6 @@ if not st.session_state.oturum_acildi:
 
 # =====================================================================
 # 🚨 GÜVENLİ BÖLGE: MOBİL QR KOD SİCİL VE BAKIM EKRANI (LİNK DİNLEYİCİ)
-# SADECE OTURUM AÇANLAR BU KISMA ULAŞABİLİR!
 # =====================================================================
 qr_parametreleri = st.query_params
 if "makine" in qr_parametreleri:
@@ -329,7 +331,7 @@ if "makine" in qr_parametreleri:
                         b["olcumler"] = f"{akim}A / {gerilim}V / {sicaklik}°C"
                         b["saha_notu"] = saha_notu.strip()
                         b["kritik_uyari"] = "EVET" if kritik_sorun else "HAYIR"
-                        b["dijital_imza"] = st.session_state.aktif_ad_soyad # GÜVENLİK YAMASI: İşlemi mühürleyen kişi
+                        b["dijital_imza"] = st.session_state.aktif_ad_soyad
                         
                         veri_kaydet(BAKIM_DOSYASI, bakim_planlari)
                         st.success(f"🎉 Bakım başarıyla tamamlandı ve '{st.session_state.aktif_ad_soyad}' dijital imzasıyla sisteme mühürlendi!")
@@ -343,7 +345,6 @@ if "makine" in qr_parametreleri:
     if gecmis_bakimlar:
         gecmis_bakimlar = sorted(gecmis_bakimlar, key=lambda x: x.get("gerceklesme_tarihi", ""), reverse=True)
         for gb in gecmis_bakimlar[:3]:
-            # DİJİTAL İMZAYI (GERÇEK YAPAN KİŞİYİ) GÖSTER
             st.markdown(f"📅 **{gb.get('gerceklesme_tarihi', '—')}** | 👤 Atanan: {gb.get('sorumlu_personel', '')} | ✍️ Onaylayan: **{gb.get('dijital_imza', gb.get('sorumlu_personel', ''))}**")
             st.write(f"- *Ölçüm Değerleri:* `{gb.get('olcumler', '—')}`")
             st.write(f"- *Usta Notu:* {gb.get('saha_notu', 'Not yok.')}")
@@ -369,7 +370,7 @@ else:
 # --- SOL MENÜ ---
 with st.sidebar:
     st.image("https://www.gstatic.com/images/branding/product/2x/avatar_anonymous_96x96dp.png", width=80)
-    st.title("Helix ERP v3.1")
+    st.title("Helix ERP v3.2")
     st.write(f"👤 {st.session_state.aktif_ad_soyad}")
     st.write(f"🔑 Yetki Grubu: `{current_role}`")
     st.write("---")
@@ -399,6 +400,12 @@ if secilen_modul == "Ana Sayfa":
     st.write(f"Mevcut İş Günü: **{datetime.now().strftime('%d %B %Y')}**")
     
     if current_role == "Yönetici":
+        kritik_bakimlar = [b for b in bakim_planlari if b.get("kritik_uyari") == "EVET" and b.get("durum") == "Tamamlandı 🟢"]
+        if kritik_bakimlar:
+            st.error("🚨 **DİKKAT: Sahadaki Ustalardan Kritik Arıza/Anomali Bildirimi Yapıldı!**")
+            for kb in kritik_bakimlar:
+                st.warning(f"⚠️ **Cihaz:** {kb.get('ekipman_ad')} ({kb.get('ekipman_kod')}) | **Usta:** {kb.get('sorumlu_personel')} | **Not:** {kb.get('saha_notu')}")
+                
         col1, col2, col3, col4 = st.columns(4)
         aktif_personel = len([p for p in personel_listesi if p.get("durum") == "Aktif"])
         toplam_mesai = sum(float(k.get("fazla_mesai", 0)) for k in pdks_kayitlari)
@@ -419,6 +426,8 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
         "📋 Personel Listesi ve Yönetim", "🔍 Detaylı 360° Personel Özlük Kartı", "➕ Yeni Personel Kartı / Giriş Hesabı Oluştur"
     ])
     
+    aktif_amir_adaylari = ["Yok / Bağımsız"] + [pr["ad_soyad"] for pr in personel_listesi if pr["durum"] == "Aktif"]
+    
     with sekme_liste:
         if "edit_pers_target" not in st.session_state: st.session_state.edit_pers_target = None
         if "delete_pers_target" not in st.session_state: st.session_state.delete_pers_target = None
@@ -429,7 +438,7 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
             h1, h2, h3, h4, h5, h6 = st.columns([2.5, 2.5, 2, 1.5, 1, 1])
             h1.markdown("**Ad Soyad**")
             h2.markdown("**Departman & Birim**")
-            h3.markdown("**Unvan / Rol**")
+            h3.markdown("**Kademe / Rol**")
             h4.markdown("**Durum**")
             h5.markdown("**Düzenle**")
             h6.markdown("**Sil**")
@@ -451,7 +460,7 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
                 r1, r2, r3, r4, r5, r6 = st.columns([2.5, 2.5, 2, 1.5, 1, 1])
                 r1.write(f"**{p_ad}**")
                 r2.write(f"{p.get('departman','')} - {p.get('birim','')}")
-                r3.write(p.get('unvan',''))
+                r3.write(f"{p.get('kademe', 'Usta')} ({p.get('unvan','')})")
                 r4.write("🟢 Aktif" if p.get("durum") == "Aktif" else "🔴 Pasif")
                 if r5.button("✏️", key=f"edit_btn_{idx}", use_container_width=True): st.session_state.edit_pers_target = p_ad; st.session_state.delete_pers_target = None; st.rerun()
                 if r6.button("🗑️", key=f"del_btn_{idx}", use_container_width=True): st.session_state.delete_pers_target = p_ad; st.session_state.edit_pers_target = None; st.rerun()
@@ -478,6 +487,12 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
                     en_yeni_birim = st.selectbox("Bağlı Birim *", mevcut_birimler, index=birim_index, key="edit_birim_box")
                     
                     with st.form("inline_edit_personel"):
+                        st.markdown("<h5 style='color:#2C3E50;'>🏢 Kurumsal Hiyerarşi</h5>", unsafe_allow_html=True)
+                        col_h1, col_h2 = st.columns(2)
+                        en_yeni_kademe = col_h1.selectbox("Kurumsal Kademe", KADEMELER, index=KADEMELER.index(p_edit.get("kademe", "Usta")) if p_edit.get("kademe", "Usta") in KADEMELER else 3)
+                        en_yeni_amir = col_h2.selectbox("Doğrudan Bağlı Olduğu Amir", aktif_amir_adaylari, index=aktif_amir_adaylari.index(p_edit.get("amir", "Yok / Bağımsız")) if p_edit.get("amir", "Yok / Bağımsız") in aktif_amir_adaylari else 0)
+                        st.markdown("---")
+                        
                         col_e1, col_e2 = st.columns(2)
                         with col_e1:
                             en_yeni_ad = st.text_input("Ad Soyad *", value=p_edit["ad_soyad"])
@@ -485,7 +500,7 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
                             en_yeni_dogum = st.date_input("Doğum Tarihi", value=dt_dogum)
                             en_yeni_kan = st.selectbox("Kan Grubu 🩸", KAN_GRUPLARI, index=KAN_GRUPLARI.index(p_edit["kan_grubu"]) if p_edit["kan_grubu"] in KAN_GRUPLARI else 0)
                             en_yeni_durum = st.selectbox("Çalışan Sistem Durumu", ["Aktif", "Pasif"], index=0 if p_edit.get("durum","Aktif") == "Aktif" else 1)
-                            en_yeni_unvan = st.text_input("Unvan / Rol *", value=p_edit["unvan"])
+                            en_yeni_unvan = st.text_input("Mesleki Unvan (Özel) *", value=p_edit["unvan"])
                         with col_e2:
                             en_yeni_giris = st.date_input("İşe Giriş Tarihi", value=dt_giris)
                             en_yeni_sekil = st.selectbox("Çalışma Şekli", CALISMA_SEKILLERI, index=CALISMA_SEKILLERI.index(p_edit["calisma_sekli"]) if p_edit["calisma_sekli"] in CALISMA_SEKILLERI else 0)
@@ -506,6 +521,7 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
                                     "telefon": en_yeni_tel.strip() if en_yeni_tel else "—", "eposta": en_yeni_eposta.strip() if en_yeni_eposta else "—", 
                                     "dogum_tarihi": en_yeni_dogum.strftime("%Y-%m-%d"), "kan_grubu": en_yeni_kan, 
                                     "ise_giris_tarihi": en_yeni_giris.strftime("%Y-%m-%d"), "departman": en_yeni_dep, "birim": en_yeni_birim, 
+                                    "kademe": en_yeni_kademe, "amir": en_yeni_amir,
                                     "unvan": en_yeni_unvan.strip(), "calisma_sekli": en_yeni_sekil, "saatlik_ucret": round(en_yeni_ucret, 2), 
                                     "acil_yakini": en_yeni_acil_ad.strip() if en_yeni_acil_ad else "—", 
                                     "acil_telefon": en_yeni_acil_tel.strip() if en_yeni_acil_tel else "—", "adres": en_yeni_adres.strip() if en_yeni_adres else "—", 
@@ -561,7 +577,8 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
                 <div style="background-color:#f8f9fa; padding:25px; border-radius:12px; border-top: 6px solid #2C3E50; text-align:center; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
                     <img src="https://www.gstatic.com/images/branding/product/2x/avatar_anonymous_96x96dp.png" style="width:110px; border-radius:50%; border: 3px solid #2C3E50; margin-bottom:12px;">
                     <h3 style="margin:0; color:#2C3E50; font-size:20px;">{p_kart['ad_soyad']}</h3>
-                    <p style="margin:5px 0 15px 0; color:#7f8c8d; font-weight:500; font-size:14px;">{p_kart['unvan']}</p>
+                    <p style="margin:5px 0 5px 0; color:#2980b9; font-weight:bold; font-size:15px;">{p_kart.get('kademe', 'Usta')}</p>
+                    <p style="margin:0 0 15px 0; color:#7f8c8d; font-weight:500; font-size:13px;">Bağlı Olduğu Yönetici: {p_kart.get('amir', 'Yok')}</p>
                     <span style="background-color:{'#2ecc71' if p_kart['durum']=='Aktif' else '#e74c3c'}; color:white; padding:5px 15px; border-radius:30px; font-size:12px; font-weight:bold;">
                         {'🟢 ÇALIŞAN AKTİF / SAHADA' if p_kart['durum']=='Aktif' else '🔴 PASİF DURUMDA'}
                     </span>
@@ -655,13 +672,19 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
         secilen_dep = st.selectbox("Departman Seçimi *", list(DEPARTMAN_BIRIMLERI.keys()))
         secilen_birim = st.selectbox("Bağlı Olacağı Birim *", DEPARTMAN_BIRIMLERI[secilen_dep])
         with st.form("gelismis_personel_formu", clear_on_submit=True):
+            st.markdown("<h5 style='color:#2C3E50;'>🏢 Kurumsal Hiyerarşi Ataması</h5>", unsafe_allow_html=True)
+            col_h1, col_h2 = st.columns(2)
+            p_kademe = col_h1.selectbox("Kurumsal Kademe *", KADEMELER, index=3) # Varsayılan Usta
+            p_amir = col_h2.selectbox("Doğrudan Bağlı Olduğu Amir", aktif_amir_adaylari)
+            st.markdown("---")
+            
             col_f1, col_f2 = st.columns(2)
             with col_f1: 
                 ad_soyad = st.text_input("Ad Soyad *")
                 tc_no = st.text_input("T.C. Kimlik Numarası", max_chars=11)
                 dogum_tarihi = st.date_input("Doğum Tarihi", datetime(1995, 1, 1))
                 kan_grubu = st.selectbox("Kan Grubu 🩸", KAN_GRUPLARI)
-                unvan = st.text_input("Unvan / Rol *")
+                unvan = st.text_input("Mesleki Unvan (Özel) *")
             with col_f2: 
                 ise_giris_tarihi = st.date_input("İşe Giriş Tarihi", datetime.now())
                 calisma_sekli = st.selectbox("Çalışma Şekli", CALISMA_SEKILLERI)
@@ -680,7 +703,7 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
             
             if st.form_submit_button("💾 Personel Özlük Dosyasını ve Giriş Hesabını Kaydet", type="primary", use_container_width=True):
                 if ad_soyad.strip() and unvan.strip() and p_username.strip() and p_password.strip():
-                    personel_listesi.append({"ad_soyad": ad_soyad.strip(), "tc_no": tc_no.strip() if tc_no else "—", "telefon": telefon.strip() if telefon else "—", "eposta": eposta.strip() if eposta else "—", "dogum_tarihi": dogum_tarihi.strftime("%Y-%m-%d"), "kan_grubu": kan_grubu, "ise_giris_tarihi": ise_giris_tarihi.strftime("%Y-%m-%d"), "departman": secilen_dep, "birim": secilen_birim, "unvan": unvan.strip(), "calisma_sekli": calisma_sekli, "saatlik_ucret": round(saatlik_ucret, 2), "acil_yakini": acil_yakini.strip() if acil_yakini else "—", "acil_telefon": acil_telefon.strip() if acil_telefon else "—", "adres": adres.strip() if adres else "—", "durum": "Aktif"})
+                    personel_listesi.append({"ad_soyad": ad_soyad.strip(), "tc_no": tc_no.strip() if tc_no else "—", "telefon": telefon.strip() if telefon else "—", "eposta": eposta.strip() if eposta else "—", "dogum_tarihi": dogum_tarihi.strftime("%Y-%m-%d"), "kan_grubu": kan_grubu, "ise_giris_tarihi": ise_giris_tarihi.strftime("%Y-%m-%d"), "departman": secilen_dep, "birim": secilen_birim, "kademe": p_kademe, "amir": p_amir, "unvan": unvan.strip(), "calisma_sekli": calisma_sekli, "saatlik_ucret": round(saatlik_ucret, 2), "acil_yakini": acil_yakini.strip() if acil_yakini else "—", "acil_telefon": acil_telefon.strip() if acil_telefon else "—", "adres": adres.strip() if adres else "—", "durum": "Aktif"})
                     veri_kaydet(PERSONEL_DOSYASI, personel_listesi)
                     kullanici_listesi.append({"username": p_username.strip(), "sifre": p_password.strip(), "rol": p_role, "ad_soyad": ad_soyad.strip()})
                     veri_kaydet(KULLANICI_DOSYASI, kullanici_listesi)
@@ -757,7 +780,6 @@ elif secilen_modul == "Bakım Planlama 🔧" and current_role == "Yönetici":
                             veri_kaydet(EKIPMAN_DOSYASI, ekipman_listesi); st.session_state.edit_equip_target = None; st.rerun()
                         if cb_col2.form_submit_button("❌ İptal Et", use_container_width=True): st.session_state.edit_equip_target = None; st.rerun()
 
-            # --- YENİ EKLENEN QR ETİKET ÜRETİM MERKEZİ ---
             st.write("---")
             st.markdown("### 🖨️ Endüstriyel QR Kod Etiket Üretim Merkezi")
             if ekipman_listesi:
@@ -1143,20 +1165,68 @@ elif secilen_modul == "İzin Yönetimi" and current_role == "Yönetici":
 
 elif secilen_modul == "Raporlar & Analiz" and current_role == "Yönetici":
     st.title("📊 Gelişmiş Finansal ve Operasyonel Raporlama")
-    if not pdks_kayitlari: st.info("Rapor oluşturabilmek için PDKS modülünden veri girilmelidir.")
-    else:
-        df_pdks = pd.DataFrame(pdks_kayitlari)
-        ucret_sozlugu = {p["ad_soyad"]: p.get("saatlik_ucret", 150.0) for p in personel_listesi}
-        df_pdks["Mesaî Maliyeti (TL)"] = [round(float(row["fazla_mesai"]) * float(ucret_sozlugu.get(row["personel"], 150.0)) * 1.5, 2) for idx, row in df_pdks.iterrows()]
-        col_r1, col_r2 = st.columns(2)
-        with col_r1:
-            st.subheader("👤 Personel Bazlı Mesai Yükü")
-            mesai_ozet = df_pdks.groupby("personel").agg({"fazla_mesai": "sum", "Mesaî Maliyeti (TL)": "sum"}).reset_index()
-            mesai_ozet.columns = ["Personel Adı", "Toplam Mesai (Saat)", "Ödenecek Ek Mesai Ücreti (TL)"]
-            st.dataframe(mesai_ozet, use_container_width=True, hide_index=True)
-        with col_r2:
-            st.subheader("📊 Şirket Maliyet Dağılımı")
-            st.bar_chart(data=mesai_ozet, x="Personel Adı", y="Ödenecek Ek Mesai Ücreti (TL)")
+    
+    sekme_maliyet, sekme_asistan = st.tabs(["💰 Maliyet ve Mesai Analizi", "📈 Otomatik Asistan Raporları (Hiyerarşik)"])
+    
+    with sekme_maliyet:
+        if not pdks_kayitlari: st.info("Rapor oluşturabilmek için PDKS modülünden veri girilmelidir.")
+        else:
+            df_pdks = pd.DataFrame(pdks_kayitlari)
+            ucret_sozlugu = {p["ad_soyad"]: p.get("saatlik_ucret", 150.0) for p in personel_listesi}
+            df_pdks["Mesaî Maliyeti (TL)"] = [round(float(row["fazla_mesai"]) * float(ucret_sozlugu.get(row["personel"], 150.0)) * 1.5, 2) for idx, row in df_pdks.iterrows()]
+            col_r1, col_r2 = st.columns(2)
+            with col_r1:
+                st.subheader("👤 Personel Bazlı Mesai Yükü")
+                mesai_ozet = df_pdks.groupby("personel").agg({"fazla_mesai": "sum", "Mesaî Maliyeti (TL)": "sum"}).reset_index()
+                mesai_ozet.columns = ["Personel Adı", "Toplam Mesai (Saat)", "Ödenecek Ek Mesai Ücreti (TL)"]
+                st.dataframe(mesai_ozet, use_container_width=True, hide_index=True)
+            with col_r2:
+                st.subheader("📊 Şirket Maliyet Dağılımı")
+                st.bar_chart(data=mesai_ozet, x="Personel Adı", y="Ödenecek Ek Mesai Ücreti (TL)")
+
+    with sekme_asistan:
+        st.markdown("### 📈 Yönetici / Formen Asistan Raporu")
+        st.info("Bu modül, organizasyon şemasındaki (ast-üst) ilişkilerine göre filtreleme yapar. Sadece seçilen amire doğrudan bağlı olan ekibin performansını ve iş yükünü gösterir.")
+        
+        olasi_amirler = [p["ad_soyad"] for p in personel_listesi if p.get("kademe") in ["Birim Şefi", "Şef Yardımcısı", "Formen"] and p.get("durum") == "Aktif"]
+        
+        if not olasi_amirler:
+            st.warning("Sistemde 'Birim Şefi', 'Şef Yardımcısı' veya 'Formen' kademesinde kayıtlı aktif personel bulunmuyor.")
+        else:
+            varsayilan_index = olasi_amirler.index(st.session_state.aktif_ad_soyad) if st.session_state.aktif_ad_soyad in olasi_amirler else 0
+            rapor_istenen_amir = st.selectbox("Raporu Üretilecek Yöneticiyi Seçin", olasi_amirler, index=varsayilan_index)
+            
+            if st.button("📊 Raporu Derle", type="primary"):
+                amir_obj = next((p for p in personel_listesi if p["ad_soyad"] == rapor_istenen_amir), None)
+                amir_unvani = amir_obj.get("kademe", "") if amir_obj else ""
+                
+                alt_kadro = [p["ad_soyad"] for p in personel_listesi if p.get("amir") == rapor_istenen_amir and p.get("durum") == "Aktif"]
+                
+                if not alt_kadro:
+                    st.warning(f"**{rapor_istenen_amir}** adlı yöneticiye doğrudan bağlı olarak atanmış aktif bir usta/personel bulunmuyor. Lütfen 'Personel Özlük' modülünden çalışanların amir atamalarını güncelleyiniz.")
+                else:
+                    st.markdown("---")
+                    st.markdown(f"### 📋 {rapor_istenen_amir} ({amir_unvani}) - Haftalık Ekip Özet Raporu")
+                    st.success(f"**Sorumlu Olunan Ekip ({len(alt_kadro)} Kişi):** {', '.join(alt_kadro)}")
+                    
+                    c_asp1, c_asp2 = st.columns(2)
+                    
+                    with c_asp1:
+                        st.markdown("**🛠️ Ekibin Üzerindeki Aktif CMMS / Arıza Yükü**")
+                        ekip_isleri = [b for b in bakim_planlari if b.get("sorumlu_personel") in alt_kadro and b.get("durum") not in ["Tamamlandı 🟢", "İptal Edildi 🔴"]]
+                        if ekip_isleri:
+                            st.dataframe(pd.DataFrame(ekip_isleri)[["ekipman_ad", "bakim_turu", "sorumlu_personel", "durum"]], use_container_width=True, hide_index=True)
+                        else:
+                            st.write("✅ Ekip üzerine atanmış bekleyen bir bakım/arıza görevi bulunmuyor.")
+                            
+                    with c_asp2:
+                        st.markdown("**⏱️ Ekip İçi PDKS ve Mesai İhlalleri (Son 7 Gün)**")
+                        son_7_gun = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+                        ekip_pdks = [k for k in pdks_kayitlari if k.get("personel") in alt_kadro and k.get("tarih") >= son_7_gun and (k.get("gecikme_dk", 0) > 0 or float(k.get("fazla_mesai", 0)) > 0)]
+                        if ekip_pdks:
+                            st.dataframe(pd.DataFrame(ekip_pdks)[["tarih", "personel", "gecikme_dk", "fazla_mesai"]], use_container_width=True, hide_index=True)
+                        else:
+                            st.write("✅ Son 7 gün içinde ekipte gecikme ihlali veya fazla mesai işlemi kaydedilmemiştir.")
 
 # --- PERSONEL PORTALI MODÜLLERİ ---
 
