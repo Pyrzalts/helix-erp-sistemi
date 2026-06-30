@@ -13,7 +13,7 @@ import qrcode
 from io import BytesIO
 
 # --- SİSTEM URL AYARI (BUNU KENDİ YAYIN LİNKİNİZLE DEĞİŞTİRİN) ---
-SISTEM_CANLI_LINKI = "https://helix-erp.streamlit.app"
+SISTEM_CANLI_LINKI = "https://helix-erp-sistemi-ezpfhhar8yk7apvyh3hkdm.streamlit.app/"
 
 # --- SAYFA YAPILANDIRMASI ---
 st.set_page_config(
