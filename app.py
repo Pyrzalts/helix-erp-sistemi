@@ -18,7 +18,7 @@ SISTEM_CANLI_LINKI = "https://helix-erp-sistemi-ezpfhhar8yk7apvyh3hkdm.streamlit
 
 # --- SAYFA YAPILANDIRMASI ---
 st.set_page_config(
-    page_title="Helix ERP v3.4 (Akıllı Vardiya Ops)",
+    page_title="Helix ERP v3.5 (Enerji Takip & Kompanzasyon)",
     page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -34,6 +34,7 @@ IZIN_DOSYASI = "izin.json"
 BAKIM_DOSYASI = "bakim.json"
 EKIPMAN_DOSYASI = "ekipman.json"
 IZIN_TALEP_DOSYASI = "izin_talepleri.json"
+SAYAC_DOSYASI = "sayac.json" # YENİ EKLENEN SAYAÇ DOSYASI
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -46,7 +47,8 @@ TABLO_MAP = {
     "izin.json": "Izin",
     "bakim.json": "Bakim",
     "ekipman.json": "Ekipman",
-    "izin_talepleri.json": "Izin_Talepleri"
+    "izin_talepleri.json": "Izin_Talepleri",
+    "sayac.json": "Sayac"
 }
 
 def unflatten_vardiya(df):
@@ -131,14 +133,14 @@ def mail_gonder_smtp(gonderen, sifre, alici_listesi, konu, df):
         <html>
         <head>
         <style>
-            table {{border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;}} 
-            th, td {{padding: 10px; text-align: left; border: 1px solid #ddd;}} 
+            table {{border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; text-align: center;}} 
+            th, td {{padding: 10px; border: 1px solid #ddd;}} 
             th {{background-color: #2C3E50; color: white;}}
             tr:nth-child(even) {{background-color: #f2f2f2;}}
         </style>
         </head>
         <body>
-            <h2 style="color: #2C3E50;">{konu}</h2>
+            <h2 style="color: #2C3E50; text-align:center;">{konu}</h2>
             <p>Sistem üzerinden otomatik olarak oluşturulmuş tablo aşağıdadır:</p>
             {html_tablo}
         </body>
@@ -242,6 +244,7 @@ izin_kayitlari = veri_yukle(IZIN_DOSYASI, [])
 bakim_planlari = veri_yukle(BAKIM_DOSYASI, [])
 ekipman_listesi = veri_yukle(EKIPMAN_DOSYASI, [])
 izin_talepleri = veri_yukle(IZIN_TALEP_DOSYASI, [])
+sayac_kayitlari = veri_yukle(SAYAC_DOSYASI, []) # YENİ
 
 for p in personel_listesi:
     p.setdefault("tc_no", "—"); p.setdefault("telefon", "—"); p.setdefault("eposta", "—")
@@ -383,8 +386,8 @@ if "makine" in qr_parametreleri:
 current_role = st.session_state.aktif_rol
 
 if current_role == "Yönetici":
-    menu_options = ["Ana Sayfa", "Personel Özlük", "Bakım Planlama 🔧", "Haftalık İş Planı 📅", "Vardiya Yönetimi", "Giriş-Çıkış Takibi (PDKS)", "İzin Yönetimi", "Raporlar & Analiz"]
-    menu_icons = ["house", "people", "wrench", "calendar-week", "clock-history", "box-arrow-in-right", "calendar-x", "graph-up-arrow"]
+    menu_options = ["Ana Sayfa", "Personel Özlük", "Bakım Planlama 🔧", "Haftalık İş Planı 📅", "Vardiya Yönetimi", "Giriş-Çıkış Takibi (PDKS)", "İzin Yönetimi", "Enerji & Sayaç ⚡", "Raporlar & Analiz"]
+    menu_icons = ["house", "people", "wrench", "calendar-week", "clock-history", "box-arrow-in-right", "calendar-x", "lightning", "graph-up-arrow"]
 else:
     menu_options = ["Ana Sayfa", "Vardiya Dünyam 📋", "Tesis Bakım Planı 🔧", "PDKS Geçmişim ⏱️", "İzin İşlemlerim ✈️"]
     menu_icons = ["house", "calendar-date", "wrench", "alarm", "airplane"]
@@ -392,7 +395,7 @@ else:
 # --- SOL MENÜ ---
 with st.sidebar:
     st.image("https://www.gstatic.com/images/branding/product/2x/avatar_anonymous_96x96dp.png", width=80)
-    st.title("Helix ERP v3.4")
+    st.title("Helix ERP v3.5")
     st.write(f"👤 {st.session_state.aktif_ad_soyad}")
     st.write(f"🔑 Yetki Grubu: `{current_role}`")
     st.write("---")
@@ -1107,7 +1110,6 @@ elif secilen_modul == "Vardiya Yönetimi" and current_role == "Yönetici":
                     gun_ad = TURKCE_GUNLER.get(guncel_tarih_dt.strftime("%A"), guncel_tarih_dt.strftime("%A"))
                     bayram_durumu = RESMI_TATILLER_2026.get(guncel_tarih_str, "")
                     
-                    # OTOMATİK BAYRAM ATAMASI
                     varsayilan_vardiya = "Bayram İzni 🇹🇷" if bayram_durumu else "Sabit (08:00 - 18:00)"
                     
                     gun_verileri.append({
@@ -1242,6 +1244,164 @@ elif secilen_modul == "İzin Yönetimi" and current_role == "Yönetici":
                         
     izin_yonetimi_canli_paneli()
 
+# --- YENİ EKLENEN ENERJİ VE SAYAÇ MODÜLÜ ---
+elif secilen_modul == "Enerji & Sayaç Takibi ⚡" and current_role == "Yönetici":
+    st.title("⚡ Endüstriyel Kompanzasyon ve Sayaç Analizi")
+    st.write("Tesisin ana sayacından alınan günlük Aktif, Endüktif ve Kapasitif değerlerin takibi. (Yasal Sınırlar: Endüktif %20, Kapasitif %15)")
+    
+    sekme_sayac_gir, sekme_sayac_analiz, sekme_sayac_cikti = st.tabs([
+        "📝 Günlük Sayaç Girişi & Düzenleme", "📊 Kompanzasyon Ceza Analizi", "🖨️ Çıktı & Paylaşım"
+    ])
+    
+    with sekme_sayac_gir:
+        with st.form("sayac_giris_formu", clear_on_submit=True):
+            st.markdown("#### Yeni Günlük Endeks Girişi")
+            col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+            s_tarih = col_s1.date_input("Okuma Tarihi", datetime.now())
+            s_aktif = col_s2.number_input("Aktif Endeks (T) - kWh", min_value=0.0, format="%.3f")
+            s_enduktif = col_s3.number_input("Endüktif (Ri) - kVArh", min_value=0.0, format="%.3f")
+            s_kapasitif = col_s4.number_input("Kapasitif (Rc) - kVArh", min_value=0.0, format="%.3f")
+            
+            if st.form_submit_button("💾 Endeksleri Sisteme İşle", type="primary", use_container_width=True):
+                t_str = s_tarih.strftime("%Y-%m-%d")
+                mevcut_var_mi = next((i for i, s in enumerate(sayac_kayitlari) if s["tarih"] == t_str), None)
+                if mevcut_var_mi is not None:
+                    st.warning(f"⚠️ {t_str} tarihi için zaten bir kayıt var. Lütfen alttaki tablodan düzenleyin.")
+                else:
+                    sayac_kayitlari.append({
+                        "id": len(sayac_kayitlari) + 1,
+                        "tarih": t_str,
+                        "aktif": s_aktif,
+                        "enduktif": s_enduktif,
+                        "kapasitif": s_kapasitif
+                    })
+                    veri_kaydet(SAYAC_DOSYASI, sayac_kayitlari)
+                    st.success("✅ Günlük sayaç endeksleri başarıyla eklendi!")
+                    st.rerun()
+                    
+        st.markdown("---")
+        st.markdown("#### 🛠️ Ham Veri Tablosu (Düzenleme / Silme)")
+        if not sayac_kayitlari:
+            st.info("Sistemde kayıtlı sayaç verisi bulunmamaktadır.")
+        else:
+            df_ham_sayac = pd.DataFrame(sayac_kayitlari).sort_values(by="tarih", ascending=False)
+            edited_sayac = st.data_editor(df_ham_sayac, num_rows="dynamic", hide_index=True, use_container_width=True, key="sayac_ham_editor")
+            if st.button("🔄 Tablodaki Değişiklikleri Kaydet", use_container_width=True):
+                yeni_sayac_verisi = edited_sayac.to_dict(orient="records")
+                veri_kaydet(SAYAC_DOSYASI, yeni_sayac_verisi)
+                st.success("Veriler güncellendi!")
+                st.rerun()
+
+    with sekme_sayac_analiz:
+        if not sayac_kayitlari or len(sayac_kayitlari) < 2:
+            st.info("Analiz ve oran hesaplaması yapılabilmesi için sistemde en az iki farklı güne ait endeks kaydı olmalıdır.")
+        else:
+            analiz_listesi = []
+            sayac_sirali = sorted(sayac_kayitlari, key=lambda x: x["tarih"])
+            
+            for i in range(len(sayac_sirali)):
+                current = sayac_sirali[i]
+                if i == 0:
+                    aktif_fark = end_fark = kap_fark = 0.0
+                    end_oran = kap_oran = 0.0
+                else:
+                    prev = sayac_sirali[i-1]
+                    aktif_fark = float(current["aktif"]) - float(prev["aktif"])
+                    end_fark = float(current["enduktif"]) - float(prev["enduktif"])
+                    kap_fark = float(current["kapasitif"]) - float(prev["kapasitif"])
+
+                    end_oran = (end_fark / aktif_fark * 100) if aktif_fark > 0 else 0.0
+                    kap_oran = (kap_fark / aktif_fark * 100) if aktif_fark > 0 else 0.0
+
+                durum = "Analiz Bekliyor ⏳"
+                if i > 0:
+                    if end_oran > 20.0: durum = "🚨 Endüktif CEZA Sınırı Aşımı!"
+                    elif kap_oran > 15.0: durum = "🚨 Kapasitif CEZA Sınırı Aşımı!"
+                    else: durum = "Normal 🟢"
+
+                analiz_listesi.append({
+                    "Tarih": current["tarih"],
+                    "Aktif (T)": current["aktif"],
+                    "Endüktif (Ri)": current["enduktif"],
+                    "Kapasitif (Rc)": current["kapasitif"],
+                    "Günlük Tüketim (kWh)": round(aktif_fark, 2),
+                    "Endüktif Oran (%)": round(end_oran, 2),
+                    "Kapasitif Oran (%)": round(kap_oran, 2),
+                    "Ceza Durumu": durum
+                })
+            
+            # En son kaydı en üste getirmek için listeyi ters çeviriyoruz
+            analiz_listesi.reverse()
+            df_analiz = pd.DataFrame(analiz_listesi)
+            
+            # Stilleme fonksiyonu
+            def highlight_ceza(s):
+                if "CEZA" in str(s):
+                    return 'background-color: #ffcccc; color: red; font-weight: bold'
+                elif "Normal" in str(s):
+                    return 'background-color: #ccffcc; color: green'
+                return ''
+
+            styled_df = df_analiz.style.map(highlight_ceza, subset=['Ceza Durumu'])
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            
+            # Sisteme son atılan verinin analizini alıp metrik olarak gösterelim
+            son_kayit = analiz_listesi[0]
+            if "Bekliyor" not in son_kayit["Ceza Durumu"]:
+                st.markdown(f"#### ⚡ En Son Okuma Özeti ({son_kayit['Tarih']})")
+                m1, m2, m3 = st.columns(3)
+                m1.metric(label="Günlük Aktif Tüketim", value=f"{son_kayit['Günlük Tüketim (kWh)']} kWh")
+                m2.metric(label="Endüktif Oran (Sınır %20)", value=f"% {son_kayit['Endüktif Oran (%)']}", delta="Uyarı!" if son_kayit['Endüktif Oran (%)']>20 else "Normal", delta_color="inverse")
+                m3.metric(label="Kapasitif Oran (Sınır %15)", value=f"% {son_kayit['Kapasitif Oran (%)']}", delta="Uyarı!" if son_kayit['Kapasitif Oran (%)']>15 else "Normal", delta_color="inverse")
+
+    with sekme_sayac_cikti:
+        if not sayac_kayitlari or len(sayac_kayitlari) < 2:
+            st.warning("Henüz yeterli analiz verisi yok.")
+        else:
+            col_sc1, col_sc2 = st.columns(2)
+            
+            with col_sc1:
+                st.markdown("**📄 Analiz Raporunu İndir / Yazdır**")
+                html_sayac = df_analiz.to_html(index=False, border=1)
+                html_sayac_cikti = f"""
+                <html>
+                <head><meta charset="utf-8"><title>Kompanzasyon Analizi</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; }}
+                    table {{border-collapse: collapse; width: 100%; text-align: center; margin-top:20px;}} 
+                    th, td {{padding: 8px; border: 1px solid #000; font-size:12px;}} 
+                    th {{background-color: #f2f2f2; font-weight: bold;}}
+                </style>
+                </head>
+                <body onload="window.print()">
+                    <h2 style="text-align: center;">Tesis Kompanzasyon & Sayaç Analiz Raporu</h2>
+                    {html_sayac}
+                </body>
+                </html>
+                """
+                st.download_button(
+                    label="🖨️ Sayaç Raporunu İndir (Yazdır / PDF)",
+                    data=html_sayac_cikti,
+                    file_name=f"Kompanzasyon_Raporu_{datetime.now().strftime('%Y%m%d')}.html",
+                    mime="text/html",
+                    use_container_width=True,
+                    type="primary"
+                )
+                
+            with col_sc2:
+                st.markdown("**📧 Raporu Yönetime Postala**")
+                with st.form("sayac_mail_formu"):
+                    s_gonderen = st.text_input("Gönderen E-Posta (Gmail)")
+                    s_sifre = st.text_input("Uygulama Şifresi", type="password")
+                    s_alici = st.text_input("Alıcı E-Posta Adresleri")
+                    if st.form_submit_button("🚀 Analizi Mail At", type="primary", use_container_width=True):
+                        if s_gonderen and s_sifre and s_alici:
+                            basari, hata = mail_gonder_smtp(s_gonderen, s_sifre, s_alici, f"Tesis Kompanzasyon & Sayaç Analizi", df_analiz)
+                            if basari: st.success("Sayaç raporu başarıyla gönderildi!")
+                            else: st.error(f"Hata: {hata}")
+                        else:
+                            st.warning("Tüm alanları doldurunuz.")
+
 elif secilen_modul == "Raporlar & Analiz" and current_role == "Yönetici":
     st.title("📊 Gelişmiş Finansal ve Operasyonel Raporlama")
     
@@ -1374,7 +1534,7 @@ elif secilen_modul == "Vardiya Dünyam 📋" and current_role == "Personel":
     st.title("📋 Kişisel Vardiya ve Çalışma Programım")
     p_name = st.session_state.aktif_ad_soyad
     st.write(f"Sayın **{p_name}**, önümüzdeki 15 günlük resmi çalışma takviminiz aşağıda listelenmiştir:")
-    p_bas = datetime.now(); gun_verileri = []
+    p_bas = datetime.now(); gun_verileri = []; TURKCE_GUNLER = {"Monday": "Pazartesi", "Tuesday": "Salı", "Wednesday": "Çarşamba", "Thursday": "Perşembe", "Friday": "Cuma", "Saturday": "Cumartesi", "Sunday": "Pazar"}
     for d in range(15):
         g_date = p_bas + timedelta(days=d); g_str = g_date.strftime("%Y-%m-%d"); v_model = vardiya_programi.get(p_name, {}).get(g_str, "Gündüz (Normal) / Belirlenmedi")
         gun_verileri.append({"Tarih": g_str, "Gün": TURKCE_GUNLER.get(g_date.strftime("%A"), g_date.strftime("%A")), "Atanacak Vardiya / İzin Modeli": v_model})
