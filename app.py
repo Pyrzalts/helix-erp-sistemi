@@ -18,7 +18,7 @@ SISTEM_CANLI_LINKI = "https://helix-erp-sistemi-ezpfhhar8yk7apvyh3hkdm.streamlit
 
 # --- SAYFA YAPILANDIRMASI ---
 st.set_page_config(
-    page_title="Helix ERP v3.5 (Enerji Takip & Kompanzasyon)",
+    page_title="Helix ERP v3.6 (Enerji Takip Düzeltmesi)",
     page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -34,7 +34,7 @@ IZIN_DOSYASI = "izin.json"
 BAKIM_DOSYASI = "bakim.json"
 EKIPMAN_DOSYASI = "ekipman.json"
 IZIN_TALEP_DOSYASI = "izin_talepleri.json"
-SAYAC_DOSYASI = "sayac.json" # YENİ EKLENEN SAYAÇ DOSYASI
+SAYAC_DOSYASI = "sayac.json"
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -244,7 +244,7 @@ izin_kayitlari = veri_yukle(IZIN_DOSYASI, [])
 bakim_planlari = veri_yukle(BAKIM_DOSYASI, [])
 ekipman_listesi = veri_yukle(EKIPMAN_DOSYASI, [])
 izin_talepleri = veri_yukle(IZIN_TALEP_DOSYASI, [])
-sayac_kayitlari = veri_yukle(SAYAC_DOSYASI, []) # YENİ
+sayac_kayitlari = veri_yukle(SAYAC_DOSYASI, [])
 
 for p in personel_listesi:
     p.setdefault("tc_no", "—"); p.setdefault("telefon", "—"); p.setdefault("eposta", "—")
@@ -386,6 +386,7 @@ if "makine" in qr_parametreleri:
 current_role = st.session_state.aktif_rol
 
 if current_role == "Yönetici":
+    # DÜZELTİLEN YER BURASI
     menu_options = ["Ana Sayfa", "Personel Özlük", "Bakım Planlama 🔧", "Haftalık İş Planı 📅", "Vardiya Yönetimi", "Giriş-Çıkış Takibi (PDKS)", "İzin Yönetimi", "Enerji & Sayaç ⚡", "Raporlar & Analiz"]
     menu_icons = ["house", "people", "wrench", "calendar-week", "clock-history", "box-arrow-in-right", "calendar-x", "lightning", "graph-up-arrow"]
 else:
@@ -395,7 +396,7 @@ else:
 # --- SOL MENÜ ---
 with st.sidebar:
     st.image("https://www.gstatic.com/images/branding/product/2x/avatar_anonymous_96x96dp.png", width=80)
-    st.title("Helix ERP v3.5")
+    st.title("Helix ERP v3.6")
     st.write(f"👤 {st.session_state.aktif_ad_soyad}")
     st.write(f"🔑 Yetki Grubu: `{current_role}`")
     st.write("---")
@@ -1245,7 +1246,7 @@ elif secilen_modul == "İzin Yönetimi" and current_role == "Yönetici":
     izin_yonetimi_canli_paneli()
 
 # --- YENİ EKLENEN ENERJİ VE SAYAÇ MODÜLÜ ---
-elif secilen_modul == "Enerji & Sayaç Takibi ⚡" and current_role == "Yönetici":
+elif secilen_modul == "Enerji & Sayaç ⚡" and current_role == "Yönetici":
     st.title("⚡ Endüstriyel Kompanzasyon ve Sayaç Analizi")
     st.write("Tesisin ana sayacından alınan günlük Aktif, Endüktif ve Kapasitif değerlerin takibi. (Yasal Sınırlar: Endüktif %20, Kapasitif %15)")
     
