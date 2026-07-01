@@ -11,13 +11,14 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import qrcode
 from io import BytesIO
+import base64
 
 # --- SİSTEM URL AYARI (BUNU KENDİ YAYIN LİNKİNİZLE DEĞİŞTİRİN) ---
 SISTEM_CANLI_LINKI = "https://helix-erp-sistemi-ezpfhhar8yk7apvyh3hkdm.streamlit.app/"
 
 # --- SAYFA YAPILANDIRMASI ---
 st.set_page_config(
-    page_title="Helix ERP v3.3 (Hiyerarşi & Rapor Merkezi)",
+    page_title="Helix ERP v3.4 (Akıllı Vardiya Ops)",
     page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -156,6 +157,28 @@ def mail_gonder_smtp(gonderen, sifre, alici_listesi, konu, df):
 # --- SİSTEM SABİTLERİ VE HİYERARŞİ ---
 KADEMELER = ["Birim Şefi", "Şef Yardımcısı", "Formen", "Usta", "Usta Yardımcısı"]
 
+TURKCE_GUNLER = {"Monday": "Pzt", "Tuesday": "Sal", "Wednesday": "Çar", "Thursday": "Per", "Friday": "Cum", "Saturday": "Cts", "Sunday": "Paz"}
+
+# 2026 YILI RESMİ TATİL VE BAYRAM VERİTABANI
+RESMI_TATILLER_2026 = {
+    "2026-01-01": "Yılbaşı",
+    "2026-03-19": "Ramazan Bayramı Arf.",
+    "2026-03-20": "Ramazan Bayramı 1.G",
+    "2026-03-21": "Ramazan Bayramı 2.G",
+    "2026-03-22": "Ramazan Bayramı 3.G",
+    "2026-04-23": "Ulusal Ege. ve Çoc. B.",
+    "2026-05-01": "Emek ve D. Günü",
+    "2026-05-19": "A. Anma Gençlik B.",
+    "2026-05-26": "Kurban Bayramı Arf.",
+    "2026-05-27": "Kurban Bayramı 1.G",
+    "2026-05-28": "Kurban Bayramı 2.G",
+    "2026-05-29": "Kurban Bayramı 3.G",
+    "2026-05-30": "Kurban Bayramı 4.G",
+    "2026-07-15": "Dem. ve Milli B. G.",
+    "2026-08-30": "Zafer Bayramı",
+    "2026-10-29": "Cumhuriyet Bayramı"
+}
+
 DEPARTMAN_BIRIMLERI = {
     "Yönetim": ["İnsan Kaynakları (İK)", "Muhasebe & Finans", "Bilgi İşlem (IT)", "İdari İşler & Resepsiyon", "Üst Yönetim / Genel Müdürlük"],
     "Üretim / Saha": ["Hat-1 Montaj", "Hat-2 Paketleme", "Kalıphane & Talaşlı İmalat", "Kalite Kontrol", "İş Sağlığı ve Güvenliği (İSG)"],
@@ -184,14 +207,14 @@ VARDİYALAR = [
     "Gündüz (Normal)", "Sabah Vardiyası (08:00 - 16:00)", "Akşam Vardiyası (16:00 - 00:00)",
     "Gece Vardiyası (00:00 - 08:00)", "Sabit (08:00 - 18:00)", "Mesaili Gündüz (08:00 - 20:00)",
     "Mesaili Gece (20:00 - 08:00)", "Özel Vardiya", "Haftalık İzin 🏖️", "Yıllık İzin ✈️",
-    "Sağlık Raporu 🏥", "Ücretsiz İzin 🛑", "Mazeret İzni 📝"
+    "Bayram İzni 🇹🇷", "Sağlık Raporu 🏥", "Ücretsiz İzin 🛑", "Mazeret İzni 📝"
 ]
 
 VARDİYA_STANDART_BRUT = {
     "Gündüz (Normal)": 8.0, "Sabah Vardiyası (08:00 - 16:00)": 8.0, "Akşam Vardiyası (16:00 - 00:00)": 8.0,
     "Gece Vardiyası (00:00 - 08:00)": 8.0, "Sabit (08:00 - 18:00)": 10.0, "Mesaili Gündüz (08:00 - 20:00)": 8.0,
     "Mesaili Gece (20:00 - 08:00)": 8.0, "Özel Vardiya": 8.0, "Haftalık İzin 🏖️": 0.0, "Yıllık İzin ✈️": 0.0,
-    "Sağlık Raporu 🏥": 0.0, "Ücretsiz İzin 🛑": 0.0, "Mazeret İzni 📝": 0.0
+    "Bayram İzni 🇹🇷": 0.0, "Sağlık Raporu 🏥": 0.0, "Ücretsiz İzin 🛑": 0.0, "Mazeret İzni 📝": 0.0
 }
 
 VARDİYA_SAATLERI = {
@@ -369,7 +392,7 @@ else:
 # --- SOL MENÜ ---
 with st.sidebar:
     st.image("https://www.gstatic.com/images/branding/product/2x/avatar_anonymous_96x96dp.png", width=80)
-    st.title("Helix ERP v3.3")
+    st.title("Helix ERP v3.4")
     st.write(f"👤 {st.session_state.aktif_ad_soyad}")
     st.write(f"🔑 Yetki Grubu: `{current_role}`")
     st.write("---")
@@ -600,7 +623,7 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
                                 
                 with st.expander("🏖️ Hızlı İzin / Rapor Tanımla", expanded=False):
                     with st.form(f"quick_action_leave_{secilen_profil}", clear_on_submit=True):
-                        q_iz_tur = st.selectbox("İzin/Mazeret Türü", ["Yıllık Ücretli İzin ✈️", "Sağlık Raporu 🏥", "Mazeret İzni 📝", "Ücretsiz İzin 🛑"])
+                        q_iz_tur = st.selectbox("İzin/Mazeret Türü", ["Yıllık Ücretli İzin ✈️", "Sağlık Raporu 🏥", "Mazeret İzni 📝", "Ücretsiz İzin 🛑", "Bayram İzni 🇹🇷"])
                         q_iz_bas = st.date_input("İzin Başlangıcı", datetime.now())
                         q_iz_bit = st.date_input("İzin Bitişi (Dahil)", datetime.now())
                         if st.form_submit_button("🔒 İzni Onayla ve Takvime Kilitle", use_container_width=True):
@@ -608,7 +631,7 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
                                 gün_s = (q_iz_bit - q_iz_bas).days + 1
                                 izin_kayitlari.append({"personel": secilen_profil, "tur": q_iz_tur, "baslangic": q_iz_bas.strftime("%Y-%m-%d"), "bitis": q_iz_bit.strftime("%Y-%m-%d"), "toplam_gun": gün_s})
                                 if secilen_profil not in vardiya_programi: vardiya_programi[secilen_profil] = {}
-                                v_etiket = "Yıllık İzin ✈️" if "Yıllık" in q_iz_tur else "Sağlık Raporu 🏥" if "Sağlık" in q_iz_tur else "Ücretsiz İzin 🛑" if "Ücretsiz" in q_iz_tur else "Mazeret İzni 📝"
+                                v_etiket = "Yıllık İzin ✈️" if "Yıllık" in q_iz_tur else "Sağlık Raporu 🏥" if "Sağlık" in q_iz_tur else "Bayram İzni 🇹🇷" if "Bayram" in q_iz_tur else "Ücretsiz İzin 🛑" if "Ücretsiz" in q_iz_tur else "Mazeret İzni 📝"
                                 for d in range(gün_s): vardiya_programi[secilen_profil][(q_iz_bas + timedelta(days=d)).strftime("%Y-%m-%d")] = v_etiket
                                 veri_kaydet(IZIN_DOSYASI, izin_kayitlari); veri_kaydet(VARDIYA_DOSYASI, vardiya_programi)
                                 st.success("🎉 İzin rezerve edildi ve takvime işlendi!"); st.rerun()
@@ -673,7 +696,7 @@ elif secilen_modul == "Personel Özlük" and current_role == "Yönetici":
         with st.form("gelismis_personel_formu", clear_on_submit=True):
             st.markdown("<h5 style='color:#2C3E50;'>🏢 Kurumsal Hiyerarşi Ataması</h5>", unsafe_allow_html=True)
             col_h1, col_h2 = st.columns(2)
-            p_kademe = col_h1.selectbox("Kurumsal Kademe *", KADEMELER, index=3) # Varsayılan Usta
+            p_kademe = col_h1.selectbox("Kurumsal Kademe *", KADEMELER, index=3)
             p_amir = col_h2.selectbox("Doğrudan Bağlı Olduğu Amir", aktif_amir_adaylari)
             st.markdown("---")
             
@@ -984,30 +1007,122 @@ elif secilen_modul == "Haftalık İş Planı 📅" and current_role == "Yönetic
 elif secilen_modul == "Vardiya Yönetimi" and current_role == "Yönetici":
     st.title("⏳ Günlük Vardiya Çizelgesi ve Roster Planlama")
     sekme_cizelge, sekme_vardiya_yaz = st.tabs(["📊 Toplu Vardiya Çizelgesi (Matrix)", "✍️ Gün Gün Vardiya Girişi"])
+    
     with sekme_cizelge:
-        col_m1, col_m2 = st.columns(2); matrix_baslangic = col_m1.date_input("Çizelge Başlangıç Tarihi", datetime.now(), key="m_bas"); gosterim_gunu = col_m2.selectbox("Görünüm Süresi", [7, 15, 30]); tarih_kolonlari = [(matrix_baslangic + timedelta(days=d)).strftime("%Y-%m-%d") for d in range(gosterim_gunu)]; aktif_personeller = [p["ad_soyad"] for p in personel_listesi if p["durum"] == "Aktif"]
+        col_m1, col_m2 = st.columns(2)
+        matrix_baslangic = col_m1.date_input("Çizelge Başlangıç Tarihi", datetime.now(), key="m_bas")
+        gosterim_gunu = col_m2.selectbox("Görünüm Süresi", [7, 15, 30])
+        
+        aktif_personeller = [p["ad_soyad"] for p in personel_listesi if p["durum"] == "Aktif"]
+        
         if aktif_personeller:
             matrix_data = []
             for p_ad in aktif_personeller:
                 personel_satiri = {"Personel Ad Soyad": p_ad}
-                for t_str in tarih_kolonlari: personel_satiri[t_str] = vardiya_programi.get(p_ad, {}).get(t_str, "—")
+                for d in range(gosterim_gunu):
+                    dt = matrix_baslangic + timedelta(days=d)
+                    db_str = dt.strftime("%Y-%m-%d")
+                    gun_ad = TURKCE_GUNLER.get(dt.strftime("%A"), dt.strftime("%A"))
+                    bayram = RESMI_TATILLER_2026.get(db_str, "")
+                    
+                    baslik = f"{dt.strftime('%d.%m')} ({gun_ad})"
+                    if bayram: baslik += f" [{bayram}]"
+                    
+                    v_deger = vardiya_programi.get(p_ad, {}).get(db_str, "—")
+                    personel_satiri[baslik] = v_deger
                 matrix_data.append(personel_satiri)
-            st.dataframe(pd.DataFrame(matrix_data), use_container_width=True, hide_index=True)
+                
+            df_matrix = pd.DataFrame(matrix_data)
+            st.dataframe(df_matrix, use_container_width=True, hide_index=True)
             
+            st.write("---")
+            st.markdown("### 🖨️ Çıktı ve Paylaşım İşlemleri")
+            col_islem1, col_islem2 = st.columns(2)
+            
+            with col_islem1:
+                st.markdown("**📄 Yazdırma / PDF Çıktısı Al**")
+                st.info("Çizelgeyi indirip tarayıcınızda açtığınızda **Ctrl+P** (veya Sağ Tık -> Yazdır) yaparak kağıda dökebilir veya PDF olarak kaydedebilirsiniz.")
+                
+                html_tablo = df_matrix.to_html(index=False, border=1)
+                html_cikti = f"""
+                <html>
+                <head><meta charset="utf-8">
+                <title>Vardiya Çizelgesi</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; }}
+                    table {{border-collapse: collapse; width: 100%; text-align: center; margin-top:20px;}} 
+                    th, td {{padding: 8px; border: 1px solid #000; font-size:12px;}} 
+                    th {{background-color: #f2f2f2; font-weight: bold;}}
+                </style>
+                </head>
+                <body onload="window.print()">
+                    <h2 style="text-align: center;">Haftalık Vardiya Çizelgesi ({matrix_baslangic.strftime('%d.%m.%Y')})</h2>
+                    {html_tablo}
+                </body>
+                </html>
+                """
+                
+                b64 = base64.b64encode(html_cikti.encode('utf-8')).decode()
+                st.download_button(
+                    label="🖨️ Çizelgeyi İndir (Yazdır / PDF)",
+                    data=html_cikti,
+                    file_name=f"Vardiya_Cizelgesi_{matrix_baslangic.strftime('%Y%m%d')}.html",
+                    mime="text/html",
+                    use_container_width=True,
+                    type="primary"
+                )
+                
+            with col_islem2:
+                st.markdown("**📧 E-Posta Olarak Gönder**")
+                with st.expander("Mail Gönderim Formunu Aç", expanded=False):
+                    with st.form("mail_form_vardiya_v2"):
+                        v_gonderen = st.text_input("Gönderen E-Posta (Gmail)")
+                        v_sifre = st.text_input("Uygulama Şifresi", type="password")
+                        v_alici = st.text_input("Alıcı E-Posta Adresleri (Virgülle ayırın)")
+                        if st.form_submit_button("E-Postayı Gönder 🚀", type="primary", use_container_width=True):
+                            if v_gonderen and v_sifre and v_alici:
+                                basari, hata = mail_gonder_smtp(v_gonderen, v_sifre, v_alici, f"Haftalık Vardiya Çizelgesi ({matrix_baslangic.strftime('%d.%m.%Y')})", df_matrix)
+                                if basari:
+                                    st.success("Vardiya çizelgesi e-posta olarak gönderildi!")
+                                else:
+                                    st.error(f"E-posta gönderilemedi: {hata}")
+                            else:
+                                st.warning("Lütfen tüm alanları doldurun.")
+                            
     with sekme_vardiya_yaz:
         aktif_personeller = [p["ad_soyad"] for p in personel_listesi if p["durum"] == "Aktif"]
         if aktif_personeller:
-            col_v1, col_v2 = st.columns(2); secilen_p = col_v1.selectbox("Personel", aktif_personeller); plan_baslangic = col_v1.date_input("Başlangıç Tarihi", datetime.now(), key="p_bas"); plan_bitis = col_v2.date_input("Bitiş Tarihi", datetime.now() + timedelta(days=6), key="p_bit")
+            col_v1, col_v2 = st.columns(2)
+            secilen_p = col_v1.selectbox("Personel", aktif_personeller)
+            plan_baslangic = col_v1.date_input("Başlangıç Tarihi", datetime.now(), key="p_bas")
+            plan_bitis = col_v2.date_input("Bitiş Tarihi", datetime.now() + timedelta(days=6), key="p_bit")
+            
             if plan_bitis >= plan_baslangic:
-                gün_sayisi = (plan_bitis - plan_baslangic).days + 1; TURKCE_GUNLER = {"Monday": "Pazartesi", "Tuesday": "Salı", "Wednesday": "Çarşamba", "Thursday": "Perşembe", "Friday": "Cuma", "Saturday": "Cumartesi", "Sunday": "Pazar"}; gun_verileri = []
+                gün_sayisi = (plan_bitis - plan_baslangic).days + 1
+                gun_verileri = []
+                
                 for d in range(gün_sayisi):
-                    guncel_tarih_dt = plan_baslangic + timedelta(days=d); guncel_tarih_str = guncel_tarih_dt.strftime("%Y-%m-%d")
-                    gun_verileri.append({"Tarih": guncel_tarih_str, "Gün": TURKCE_GUNLER.get(guncel_tarih_dt.strftime("%A"), guncel_tarih_dt.strftime("%A")), "Atanacak Vardiya Modeli": vardiya_programi.get(secilen_p, {}).get(guncel_tarih_str, "Sabit (08:00 - 18:00)")})
-                edited_df = st.data_editor(pd.DataFrame(gun_verileri), hide_index=True, disabled=["Tarih", "Gün"], column_config={"Atanacak Vardiya Modeli": st.column_config.SelectboxColumn("Vardiya Seçimi", options=VARDİYALAR, width="large")}, use_container_width=True, key=f"v_ed_{secilen_p}")
+                    guncel_tarih_dt = plan_baslangic + timedelta(days=d)
+                    guncel_tarih_str = guncel_tarih_dt.strftime("%Y-%m-%d")
+                    gun_ad = TURKCE_GUNLER.get(guncel_tarih_dt.strftime("%A"), guncel_tarih_dt.strftime("%A"))
+                    bayram_durumu = RESMI_TATILLER_2026.get(guncel_tarih_str, "")
+                    
+                    # OTOMATİK BAYRAM ATAMASI
+                    varsayilan_vardiya = "Bayram İzni 🇹🇷" if bayram_durumu else "Sabit (08:00 - 18:00)"
+                    
+                    gun_verileri.append({
+                        "Tarih": guncel_tarih_str, 
+                        "Gün": gun_ad, 
+                        "Özel Durum": bayram_durumu if bayram_durumu else "Normal Gün",
+                        "Atanacak Vardiya Modeli": vardiya_programi.get(secilen_p, {}).get(guncel_tarih_str, varsayilan_vardiya)
+                    })
+                    
+                edited_df = st.data_editor(pd.DataFrame(gun_verileri), hide_index=True, disabled=["Tarih", "Gün", "Özel Durum"], column_config={"Atanacak Vardiya Modeli": st.column_config.SelectboxColumn("Vardiya Seçimi", options=VARDİYALAR, width="large")}, use_container_width=True, key=f"v_ed_{secilen_p}")
+                
                 if st.button(f"💾 {secilen_p} İçin Günlük Vardiyaları Kaydet", type="primary", use_container_width=True):
                     if secilen_p not in vardiya_programi: vardiya_programi[secilen_p] = {}
                     for idx, row in edited_df.iterrows(): vardiya_programi[secilen_p][row["Tarih"]] = row["Atanacak Vardiya Modeli"]
-                    veri_kaydet(VARDIYA_DOSYASI, vardiya_programi); st.success("Vardiyalar kaydedildi!"); st.rerun()
+                    veri_kaydet(VARDIYA_DOSYASI, vardiya_programi); st.success("Vardiyalar başarıyla kaydedildi!"); st.rerun()
 
 elif secilen_modul == "Giriş-Çıkış Takibi (PDKS)" and current_role == "Yönetici":
     st.title("⏱️ PDKS Otomasyon & Mobil Sinyal Test Merkezi")
@@ -1116,12 +1231,12 @@ elif secilen_modul == "İzin Yönetimi" and current_role == "Yönetici":
         with sekme_iz_yaz:
             aktif_personeller = [p["ad_soyad"] for p in personel_listesi if p["durum"] == "Aktif"]
             with st.form("izin_giris_formu", clear_on_submit=True):
-                iz_p = st.selectbox("İzin Kullanan Personel", aktif_personeller); iz_tur = st.selectbox("İzin Türü", ["Yıllık Ücretli İzin ✈️", "Sağlık Raporu 🏥", "Mazeret İzni 📝", "Ücretsiz İzin 🛑"]); iz_bas = st.date_input("İzin Başlangıç Tarihi", datetime.now()); iz_bit = st.date_input("İzin Bitiş Tarihi (Dahil)", datetime.now())
+                iz_p = st.selectbox("İzin Kullanan Personel", aktif_personeller); iz_tur = st.selectbox("İzin Türü", ["Yıllık Ücretli İzin ✈️", "Sağlık Raporu 🏥", "Mazeret İzni 📝", "Ücretsiz İzin 🛑", "Bayram İzni 🇹🇷"]); iz_bas = st.date_input("İzin Başlangıç Tarihi", datetime.now()); iz_bit = st.date_input("İzin Bitiş Tarihi (Dahil)", datetime.now())
                 if st.form_submit_button("🔒 İzni Onayla ve Rezerve Et"):
                     if iz_bit >= iz_bas:
                         gün_s = (iz_bit - iz_bas).days + 1; canli_izinler.append({"personel": iz_p, "tur": iz_tur, "baslangic": iz_bas.strftime("%Y-%m-%d"), "bitis": iz_bit.strftime("%Y-%m-%d"), "toplam_gun": gün_s})
                         if iz_p not in canli_vardiya: canli_vardiya[iz_p] = {}
-                        v_etiket = "Yıllık İzin ✈️" if "Yıllık" in iz_tur else "Sağlık Raporu 🏥" if "Sağlık" in iz_tur else "Ücretsiz İzin 🛑"
+                        v_etiket = "Yıllık İzin ✈️" if "Yıllık" in iz_tur else "Sağlık Raporu 🏥" if "Sağlık" in iz_tur else "Bayram İzni 🇹🇷" if "Bayram" in iz_tur else "Ücretsiz İzin 🛑"
                         for d in range(gün_s): canli_vardiya[iz_p][(iz_bas + timedelta(days=d)).strftime("%Y-%m-%d")] = v_etiket
                         veri_kaydet(IZIN_DOSYASI, canli_izinler); veri_kaydet(VARDIYA_DOSYASI, canli_vardiya); st.success("🎉 İzin kaydedildi!"); st.rerun()
                         
@@ -1259,7 +1374,7 @@ elif secilen_modul == "Vardiya Dünyam 📋" and current_role == "Personel":
     st.title("📋 Kişisel Vardiya ve Çalışma Programım")
     p_name = st.session_state.aktif_ad_soyad
     st.write(f"Sayın **{p_name}**, önümüzdeki 15 günlük resmi çalışma takviminiz aşağıda listelenmiştir:")
-    p_bas = datetime.now(); gun_verileri = []; TURKCE_GUNLER = {"Monday": "Pazartesi", "Tuesday": "Salı", "Wednesday": "Çarşamba", "Thursday": "Perşembe", "Friday": "Cuma", "Saturday": "Cumartesi", "Sunday": "Pazar"}
+    p_bas = datetime.now(); gun_verileri = []
     for d in range(15):
         g_date = p_bas + timedelta(days=d); g_str = g_date.strftime("%Y-%m-%d"); v_model = vardiya_programi.get(p_name, {}).get(g_str, "Gündüz (Normal) / Belirlenmedi")
         gun_verileri.append({"Tarih": g_str, "Gün": TURKCE_GUNLER.get(g_date.strftime("%A"), g_date.strftime("%A")), "Atanacak Vardiya / İzin Modeli": v_model})
